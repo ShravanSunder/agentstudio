@@ -130,8 +130,7 @@ package struct AgentStudioIPCClient: Sendable {
         let result = try callDiscovery(method: "command.list", requestID: requestID)
         do {
             let catalog = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: result)
-            _ = try IPCCommandCatalogResult.schema(compatibility: catalog.compatibility, commands: catalog.commands)
-                .normalize(result)
+            _ = try IPCCommandCatalogResult.normalizeDiscoveryResult(result, catalog: catalog)
             guard Set(catalog.commands.map(\.id)).count == catalog.commands.count else {
                 throw failure(.deliveryUncertain, .invalidTypedResult)
             }

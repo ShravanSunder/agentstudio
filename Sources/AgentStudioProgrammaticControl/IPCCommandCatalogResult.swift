@@ -77,4 +77,9 @@ package struct IPCCommandCatalogResult: Codable, Equatable, Sendable {
             ),
         ])
     }
+    package static func normalizeDiscoveryResult(_ data: Data, catalog: Self) throws -> Data {
+        // S6c RED: the existing unprepared normalization remains until the parity proof is gated.
+        try schema(compatibility: catalog.compatibility, commands: catalog.commands).normalize(data)
+    }
+
 }

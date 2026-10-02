@@ -102,6 +102,7 @@ package struct AppIPCTypedMethodRegistration<
     private let descriptor: IPCMethodDescriptor<Parameters, Result>
     private let validatedErasedDescriptor: IPCAnyMethodDescriptor
     private let correlation: AppIPCCorrelation<Parameters>
+    private let cachedTransportResult: AppIPCCachedTransportResult?
     private let prepareAndHandle:
         @Sendable (
             Parameters, UUID?, AppIPCConnectionContext, AppIPCTargetResolutionTools, AppIPCTypedMethodAuthorization
@@ -145,6 +146,7 @@ package struct AppIPCTypedMethodRegistration<
         self.descriptor = descriptor
         validatedErasedDescriptor = descriptorRepresentations.erasedDescriptor
         self.correlation = correlation
+        self.cachedTransportResult = cachedTransportResult
         prepareAndHandle = { parameters, wireCorrelation, context, tools, authorization in
             switch (descriptor.correlationPolicy, preparedCorrelation) {
             case (.required, .required), (.optional, .notRequired), (.notAccepted, .notRequired): break
@@ -182,6 +184,7 @@ package struct AppIPCTypedMethodRegistration<
         try validateCorrelationPolicy()
         return AnyAppIPCMethodRegistration(
             descriptor: validatedErasedDescriptor,
+            cachedTransportResult: cachedTransportResult,
             invocation: { parameters, context, tools, authorization in
                 try validateConnectionAccess(context)
                 let parameterData: Data
@@ -277,6 +280,7 @@ package struct AppIPCTypedMethodRegistration<
 
 package struct AnyAppIPCMethodRegistration: Sendable {
     package let descriptor: IPCAnyMethodDescriptor
+    package let cachedTransportResult: AppIPCCachedTransportResult?
     private let invocation:
         @Sendable (
             JSONValue,
@@ -287,6 +291,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
 
     fileprivate init(
         descriptor: IPCAnyMethodDescriptor,
+        cachedTransportResult: AppIPCCachedTransportResult?,
         invocation:
             @escaping @Sendable (
                 JSONValue,
@@ -296,6 +301,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
             ) async throws -> JSONValue
     ) {
         self.descriptor = descriptor
+        self.cachedTransportResult = cachedTransportResult
         self.invocation = invocation
     }
 

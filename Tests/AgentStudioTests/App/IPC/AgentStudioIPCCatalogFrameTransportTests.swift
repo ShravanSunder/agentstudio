@@ -1,12 +1,13 @@
 import AgentStudioAppIPC
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
-import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioProgrammaticControl
 @testable import AgentStudioTestSupport
 
 /// The catalog methods are the only responses this app composes that are
@@ -117,5 +118,116 @@ struct AgentStudioIPCCatalogFrameTransportTests {
             throw error
         }
         await harness.tearDown()
+    }
+
+    @Test(
+        "catalog requests reuse encoded bytes and preserve the typed composition",
+        arguments: ["system.capabilities", "command.list"])
+    func repeatedCatalogRequestsReuseEncodedComposition(methodName: String) async throws {
+        let commandInputs = AgentStudioIPCCommandCatalogProjection.captureBuildInputs(on: .debug)
+        let commandResult = try await valueFromDedicatedThread {
+            try AppIPCDescriptorCatalogBuilder.makeCommandComposition(inputs: commandInputs).catalogResult
+        }
+        let harness = try await SessionsVerticalHarness.make()
+        do {
+            let registry = try #require(harness.appDelegate.appIPCServer?.service.methodRegistry)
+            let registration = try #require(registry.registration(named: methodName))
+            let cache = try #require(registration.cachedTransportResult)
+            #expect(cache.compositionCount == 0)
+            #expect(cache.encodedCompositionCount == 0)
+
+            for _ in 0..<3 {
+                let frame = try await harness.responseFrame(method: methodName, params: .object([:]))
+                let message = try JSONRPCCodec.decodeResponse(frame)
+                #expect(message.id == .number(2))
+                #expect(message.error == nil)
+                let result = try #require(message.result)
+                let resultData = try JSONEncoder().encode(result)
+                if methodName == "system.capabilities" {
+                    let served = try JSONDecoder().decode(IPCMethodCatalogResult.self, from: resultData)
+                    #expect(served == registry.capabilities)
+                } else {
+                    let served = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: resultData)
+                    #expect(served == commandResult)
+                }
+                #expect(frame.utf8.count <= IPCFramePolicy.maximumResponseFrameBytes)
+            }
+
+            #expect(cache.compositionCount == 1)
+            #expect(cache.encodedCompositionCount == 1)
+            #expect(cache.hasComposedValue)
+        } catch {
+            await harness.tearDown()
+            throw error
+        }
+        await harness.tearDown()
+    }
+
+    @Test("command discovery normalization preserves the real App catalog and nonmatching error")
+    func commandDiscoveryNormalizationParity() async throws {
+        let inputs = AgentStudioIPCCommandCatalogProjection.captureBuildInputs(on: .debug)
+        let observation = try await valueFromDedicatedThread {
+            let composition = try AppIPCDescriptorCatalogBuilder.makeCommandComposition(inputs: inputs)
+            let catalog = composition.catalogResult
+            let encoded = try composition.list.encodeResult(catalog)
+            let schema = try IPCCommandCatalogResult.schema(
+                compatibility: catalog.compatibility, commands: catalog.commands)
+            let reference = try schema.normalize(encoded)
+            let preparedSchema = try IPCValidatedJSONSchema(schema: schema)
+            let prepared = try preparedSchema.normalize(encoded)
+            let candidate = try IPCCommandCatalogResult.normalizeDiscoveryResult(encoded, catalog: catalog)
+            let decoded = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: candidate)
+
+            let document = try JSONSerialization.jsonObject(with: encoded)
+            guard var fields = document as? [String: Any],
+                var commands = fields["commands"] as? [[String: Any]], !commands.isEmpty
+            else { throw CatalogNormalizationFixtureError.missingComposedCommands }
+            commands[0]["id"] = "s6c.unrecognized-command"
+            fields["commands"] = commands
+            let nonmatching = try JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
+            let referenceError = try catalogNormalizationError { try schema.normalize(nonmatching) }
+            let preparedError = try catalogNormalizationError { try preparedSchema.normalize(nonmatching) }
+            let candidateError = try catalogNormalizationError {
+                try IPCCommandCatalogResult.normalizeDiscoveryResult(nonmatching, catalog: catalog)
+            }
+            return CatalogNormalizationObservation(
+                normalizedBytesEqual: reference == candidate && reference == prepared,
+                typedCompositionEqual: decoded == catalog,
+                commandIdentifiers: Set(catalog.commands.map { $0.id.rawValue }),
+                referenceError: referenceError, preparedError: preparedError, candidateError: candidateError
+            )
+        }
+        #expect(observation.normalizedBytesEqual)
+        #expect(observation.typedCompositionEqual)
+        #expect(observation.commandIdentifiers == Set(inputs.commandDescriptorInputs.map { $0.id.rawValue }))
+        let referenceError = try #require(observation.referenceError)
+        let candidateError = try #require(observation.candidateError)
+        let preparedError = try #require(observation.preparedError)
+        #expect(referenceError.reason == .noMatchingAlternative)
+        #expect(referenceError.fieldPath == "$.commands[0]")
+        #expect(candidateError == referenceError)
+        #expect(preparedError == referenceError)
+    }
+}
+
+private struct CatalogNormalizationObservation: Sendable {
+    let normalizedBytesEqual: Bool
+    let typedCompositionEqual: Bool
+    let commandIdentifiers: Set<String>
+    let referenceError: IPCSchemaValidationError?
+    let preparedError: IPCSchemaValidationError?
+    let candidateError: IPCSchemaValidationError?
+}
+
+private enum CatalogNormalizationFixtureError: Error {
+    case missingComposedCommands
+}
+
+private func catalogNormalizationError(_ normalize: () throws -> Data) throws -> IPCSchemaValidationError? {
+    do {
+        _ = try normalize()
+        return nil
+    } catch let error as IPCSchemaValidationError {
+        return error
     }
 }

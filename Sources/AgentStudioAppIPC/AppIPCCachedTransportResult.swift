@@ -18,6 +18,7 @@ package final class AppIPCCachedTransportResult: @unchecked Sendable {
     private let compose: @Sendable () throws -> JSONValue
     private var cachedValue: JSONValue?
     private var composedCount = 0
+    private var encodedCount = 0
 
     package init(compose: @escaping @Sendable () throws -> JSONValue) {
         self.compose = compose
@@ -36,6 +37,15 @@ package final class AppIPCCachedTransportResult: @unchecked Sendable {
             return composed
         }
     }
+
+    package func encodedValue() throws -> Data {
+        // S6c RED: each serve still materializes bytes from the real cached JSONValue.
+        let encoded = try JSONEncoder().encode(value())
+        lock.withLock { encodedCount += 1 }
+        return encoded
+    }
+
+    package var encodedCompositionCount: Int { lock.withLock { encodedCount } }
 
     /// Whether the encoded response has been produced yet, for tests that need
     /// to prove it happens once.
