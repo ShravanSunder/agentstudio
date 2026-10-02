@@ -2,12 +2,12 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 
-struct RepoExplorerPaneContextLine: Equatable, Sendable {
-    let text: String
-    let icon: CommandIcon
-    let tooltip: ControlTooltipRenderValue
-    let tone: PaneContextChipTone
-    let stale: Bool
+package struct RepoExplorerPaneContextLine: Equatable, Sendable {
+    package let text: String
+    package let icon: CommandIcon
+    package let tooltip: ControlTooltipRenderValue
+    package let tone: PaneContextChipTone
+    package let stale: Bool
 
     static func agent(_ line: AgentLineDetail) -> Self {
         let spec = LocalActionSpec.showPaneAgentLine(line.work).actionSpec

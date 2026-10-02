@@ -78,6 +78,7 @@ package enum LocalActionSpec {
     case goToMessagePane
     case showPaneAgentLine(AgentLineWork)
     case paneSessionStatus(AgentSessionStatus)
+    case countInformationalPaneMessages
     case showPaneMessages
     case showPaneMessageDetails
     case answerPaneMessage
@@ -161,6 +162,10 @@ package enum LocalActionSpec {
             return ActionSpec(label: "Go to pane", helpText: "Focus this message's pane", icon: .system(.terminal))
         case .showPaneMessageDetails:
             return ActionSpec(label: "Message details", helpText: "Show this message", icon: .system(.docText))
+        case .countInformationalPaneMessages:
+            return ActionSpec(
+                label: "Count informational", helpText: "Include informational notices in the messages count",
+                icon: .system(.docText))
         case .showPaneMessages:
             return ActionSpec(label: "Messages", helpText: "Show this pane's messages", icon: .system(.bell))
         case .selectPaneMessageChoice(let choice):

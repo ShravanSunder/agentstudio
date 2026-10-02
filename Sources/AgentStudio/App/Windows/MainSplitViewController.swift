@@ -226,6 +226,7 @@ class MainSplitViewController: NSSplitViewController {
             bridgePaneAttendance: bridgePaneAttendance,
             editorChooser: editorChooser,
             sessionsPaneViewedMailbox: sessionsPaneViewedMailbox,
+            paneContextReaders: paneContextReaders,
             paneInboxPresentation: nil,
             pinnedPanePreferences: repoExplorerSidebarPrefs,
             closeTransitionCoordinator: closeTransitionCoordinator,

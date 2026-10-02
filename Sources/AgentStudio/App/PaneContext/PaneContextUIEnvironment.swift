@@ -1,0 +1,18 @@
+import SwiftUI
+
+private struct PaneContextUIReadersKey: EnvironmentKey {
+    static let defaultValue: PaneContextUIReaders? = nil
+}
+private struct PaneContextHostVisibleKey: EnvironmentKey {
+    static let defaultValue = true
+}
+extension EnvironmentValues {
+    var paneContextUIReaders: PaneContextUIReaders? {
+        get { self[PaneContextUIReadersKey.self] }
+        set { self[PaneContextUIReadersKey.self] = newValue }
+    }
+    var paneContextHostVisible: Bool {
+        get { self[PaneContextHostVisibleKey.self] }
+        set { self[PaneContextHostVisibleKey.self] = newValue }
+    }
+}

@@ -7,12 +7,20 @@ import AgentStudioSharedComponents
 struct PaneContextUIReaders {
     let sessionStatusForPane: @MainActor (PaneId) -> AgentSessionStatus?
     let contextDisplayForPane: @MainActor (PaneId) -> PaneContextDisplay?
+    let serviceProvider: @MainActor () -> PaneContextUIAdapter?
+    let membershipProvider: @MainActor () -> (any PaneLinkMembershipPort)?
+    let isDrawerPane: @MainActor (PaneId) -> Bool
     let titleForPane: @MainActor (PaneId) -> String?
 
     init(
         sessionStatus: SessionStatusAtom, presentation: PaneContextPresentationAtom,
-        pane: @escaping @MainActor (PaneId) -> Pane?
+        pane: @escaping @MainActor (PaneId) -> Pane?,
+        serviceProvider: @escaping @MainActor () -> PaneContextUIAdapter? = { nil },
+        membershipProvider: @escaping @MainActor () -> (any PaneLinkMembershipPort)? = { nil }
     ) {
+        self.serviceProvider = serviceProvider
+        self.membershipProvider = membershipProvider
+        isDrawerPane = { pane($0)?.parentPaneId != nil }
         sessionStatusForPane = { sessionStatus.value(for: $0) }
         contextDisplayForPane = { presentation.value(for: $0) }
         let titles = PaneDisplayTitleDerived(presentation: presentation)
@@ -24,7 +32,7 @@ struct PaneContextUIReaders {
 
     func makePopoverController(
         reader: any PaneContextDetailReading, person: any PaneContextPersonActing,
-        membership: any PaneLinkMembershipPort, contributor: BridgeLinkContributor,
+        membership: (any PaneLinkMembershipPort)?, contributor: BridgeLinkContributor,
         location: PaneContextPopoverLocation
     ) -> PaneContextPopoverController {
         PaneContextPopoverController(

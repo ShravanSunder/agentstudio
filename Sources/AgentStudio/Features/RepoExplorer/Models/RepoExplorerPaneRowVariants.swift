@@ -24,7 +24,7 @@ enum RepoExplorerPaneChipKind: Equatable, Sendable {
     case gitPR
     case changes
     case sync
-    case notifications
+    case messages
     case clock
     case active
 }
@@ -48,7 +48,8 @@ struct RepoExplorerPaneRowVariants: Equatable, Sendable {
         branchStatus: GitBranchStatus?,
         isActive: Bool,
         agentLine: AgentLineDetail? = nil,
-        sessionStatus: AgentSessionStatus? = nil
+        sessionStatus: AgentSessionStatus? = nil,
+        messageCount: Int = 0
     ) -> Self {
         let candidates: [RepoExplorerPaneLineKind: RepoExplorerPaneRowLine?] = [
             .title: .title(title),
@@ -81,6 +82,10 @@ struct RepoExplorerPaneRowVariants: Equatable, Sendable {
             if SidebarGitStatusChips.showsSync(branchStatus: branchStatus) {
                 expandedChips.append(.sync)
             }
+        }
+        if messageCount > 0 {
+            compactChips.append(.messages)
+            expandedChips.append(.messages)
         }
         compactChips.append(.clock)
         expandedChips.append(.clock)

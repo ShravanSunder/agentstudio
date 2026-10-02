@@ -3,12 +3,17 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
 
-struct RepoExplorerPaneContextLineView: View {
+package struct RepoExplorerPaneContextLineView: View {
     let line: RepoExplorerPaneContextLine
     let isAgentLine: Bool
     let octiconLoader: OcticonLoader
 
-    var body: some View {
+    package init(line: RepoExplorerPaneContextLine, isAgentLine: Bool, octiconLoader: OcticonLoader) {
+        self.line = line
+        self.isAgentLine = isAgentLine
+        self.octiconLoader = octiconLoader
+    }
+    package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
             line.icon.swiftUIImage(loader: octiconLoader, size: AppStyles.Shell.Sidebar.branchIconSize)
                 .foregroundStyle(glyphColor)

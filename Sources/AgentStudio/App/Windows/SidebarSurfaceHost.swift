@@ -134,6 +134,16 @@ struct SidebarSurfaceHost: View {
                     }
                 },
                 onPerformanceProofReadback: onPerformanceProofReadback,
+                paneContextControl: { pane, presentation in
+                    guard let paneContextReaders else { return nil }
+                    return AnyView(
+                        PaneContextPopoverHost(
+                            paneId: pane, presentation: presentation, location: .sidebar, readers: paneContextReaders,
+                            octiconLoader: octiconLoader,
+                            onGoToPane: { target in
+                                AppCommandDispatcher.shared.dispatch(.focusPane, target: target, targetType: .pane)
+                            }))
+                },
                 latestPaneMessageSnapshot: { paneId in
                     paneActivityStatusAtom.status(for: paneId)
                 },

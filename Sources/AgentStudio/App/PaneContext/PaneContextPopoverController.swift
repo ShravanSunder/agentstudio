@@ -13,9 +13,9 @@ final class PaneContextPopoverController {
     private(set) var actionFeedback: String?
     private(set) var linkFeedback: String?
     let location: PaneContextPopoverLocation
-    private let reader: any PaneContextDetailReading
-    private let person: any PaneContextPersonActing
-    private let membership: any PaneLinkMembershipPort
+    private var reader: any PaneContextDetailReading
+    private var person: any PaneContextPersonActing
+    private var membership: (any PaneLinkMembershipPort)?
     private let contributor: BridgeLinkContributor
     private let titleForPane: @MainActor (PaneId) -> String?
     private let revisionForPane: @MainActor (PaneId) -> PaneContextRevision?
@@ -24,7 +24,7 @@ final class PaneContextPopoverController {
 
     init(
         reader: any PaneContextDetailReading, person: any PaneContextPersonActing,
-        membership: any PaneLinkMembershipPort, contributor: BridgeLinkContributor,
+        membership: (any PaneLinkMembershipPort)?, contributor: BridgeLinkContributor,
         location: PaneContextPopoverLocation, titleForPane: @escaping @MainActor (PaneId) -> String?,
         revisionForPane: @escaping @MainActor (PaneId) -> PaneContextRevision?
     ) {
@@ -35,6 +35,24 @@ final class PaneContextPopoverController {
         self.location = location
         self.titleForPane = titleForPane
         self.revisionForPane = revisionForPane
+    }
+
+    func useCurrentService(_ adapter: PaneContextUIAdapter?) -> Bool {
+        guard let adapter else {
+            generation &+= 1
+            paneId = nil
+            state = nil
+            detail = nil
+            unavailableNote = "Not available right now"
+            return false
+        }
+        reader = adapter
+        person = adapter
+        return true
+    }
+
+    func useCurrentMembership(_ port: (any PaneLinkMembershipPort)?) {
+        membership = port
     }
 
     func open(_ pane: PaneId) async {
@@ -200,7 +218,7 @@ final class PaneContextPopoverController {
     }
 
     func removeMember(_ worktree: WorktreeId) async {
-        guard let owner = paneId else { return }
+        guard let owner = paneId, let membership else { return }
         do {
             let result = try await membership.removeMember(
                 receiver: owner, worktree: worktree, contributor: contributor)
@@ -223,7 +241,7 @@ final class PaneContextPopoverController {
     }
 
     func removePullRequestReference(_ reference: ForgePullRequestIdentity) async {
-        guard let owner = paneId else { return }
+        guard let owner = paneId, let membership else { return }
         do {
             let result = try await membership.removePullRequestReference(
                 receiver: owner, reference: reference, contributor: contributor)

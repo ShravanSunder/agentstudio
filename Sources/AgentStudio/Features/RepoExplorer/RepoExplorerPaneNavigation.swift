@@ -28,6 +28,7 @@ struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader
     var keyboardPresentation = RepoExplorerRowKeyboardPresentation.inactive
+    var paneContextControl: RepoExplorerPaneContextControlFactory = { _, _ in nil }
     let onFocus: () -> Void
 
     @State private var isHovering = false
@@ -49,6 +50,9 @@ struct RepoExplorerPaneRow: View {
                 drawerRail: row.drawerRail,
                 showsChipLine: row.displayVariant == .expanded
                     ? row.variants?.expanded.showsChipLine ?? true : row.variants?.compact.showsChipLine ?? true,
+                messageChip: row.messageChip,
+                paneId: PaneId(existingUUID: row.destination.paneId),
+                paneContextControl: paneContextControl,
                 preparedLines: row.displayVariant == .expanded
                     ? row.variants?.expanded.lines : row.variants?.compact.lines
             )
@@ -99,6 +103,9 @@ struct RepoExplorerPaneRowContent: View {
     var showsExpandedChips = false
     var drawerRail: RepoExplorerDrawerRail = .none
     var showsChipLine = true
+    var messageChip: PaneMessageChipModel?
+    var paneId: PaneId?
+    var paneContextControl: RepoExplorerPaneContextControlFactory = { _, _ in nil }
     var preparedLines: [RepoExplorerPaneRowLine]?
 
     static func leadingContentInset(for drawerRail: RepoExplorerDrawerRail) -> CGFloat {
@@ -122,7 +129,11 @@ struct RepoExplorerPaneRowContent: View {
                     case .note(let text):
                         SidebarMetadataLine(icon: .systemName("long.text.page.and.pencil"), text: text)
                     case .agentLine(let line):
-                        RepoExplorerPaneContextLineView(line: line, isAgentLine: true, octiconLoader: octiconLoader)
+                        if let paneId, let control = paneContextControl(paneId, .agentLine(line)) {
+                            control
+                        } else {
+                            RepoExplorerPaneContextLineView(line: line, isAgentLine: true, octiconLoader: octiconLoader)
+                        }
                     case .sessionStatus(let line):
                         RepoExplorerPaneContextLineView(line: line, isAgentLine: false, octiconLoader: octiconLoader)
                     }
@@ -207,6 +218,9 @@ struct RepoExplorerPaneRowContent: View {
                             showsDiffChip: detailLevel.showsChanges,
                             showsSyncChip: detailLevel.showsSync
                         )
+                    }
+                    if let messageChip, let paneId {
+                        paneContextControl(paneId, .messages(messageChip))
                     }
                     SidebarChip(
                         icon: .system(.clock),

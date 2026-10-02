@@ -89,6 +89,7 @@ struct SingleTabContent: View {
                 canonicalTabContent()
             }
         }
+        .environment(\.paneContextHostVisible, store.tabLayoutAtom.activeTabId == tabId)
         .environment(\.agentStudioInteractionPerformanceProbe, interactionProbe)
     }
 

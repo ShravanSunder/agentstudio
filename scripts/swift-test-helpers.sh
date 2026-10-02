@@ -734,6 +734,7 @@ fast|PaneContextPopoverViewTests|process-global
 fast|PaneContextPopoverActionViewTests|process-global
 fast|PaneContextPopoverControllerNativeTests|process-global
 fast|RepoExplorerPaneContextAnchorTests|process-global
+fast|PaneContextPopoverHostNativeTests|process-global
 fast|AgentStudioIPCCursorHookProjectionTests|concurrent
 large|AgentStudioAppIPCConnectionAdmissionTests|concurrent
 large|AgentStudioAppIPCConnectionWaitingTests|concurrent

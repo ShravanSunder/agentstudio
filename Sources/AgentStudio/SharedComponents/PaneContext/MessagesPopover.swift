@@ -39,12 +39,15 @@ package struct MessagesPopover: View {
     private let location: PaneContextPopoverLocation
     private let providerPrompts: ProviderPromptsModel?
     private let feedback: String?
+    private let informationalToggle: PaneContextControlModel?
+    @Binding private var includesInformational: Bool
     private let actions: MessagesPopoverActions
     @State private var attentionType: MessageAttentionTypeModel?
     package init(
         paneId: UUID, model: MessagesPopoverModel, controls: PaneContextPopoverControls,
         location: PaneContextPopoverLocation, providerPrompts: ProviderPromptsModel? = nil,
-        feedback: String? = nil, actions: MessagesPopoverActions
+        feedback: String? = nil, informationalToggle: PaneContextControlModel? = nil,
+        includesInformational: Binding<Bool> = .constant(false), actions: MessagesPopoverActions
     ) {
         self.paneId = paneId
         self.model = model
@@ -52,6 +55,8 @@ package struct MessagesPopover: View {
         self.location = location
         self.providerPrompts = providerPrompts
         self.feedback = feedback
+        self.informationalToggle = informationalToggle
+        _includesInformational = includesInformational
         self.actions = actions
     }
     private var groups: [MessageSourceGroupModel] { model.partitions.groups(for: attentionType) }
@@ -64,6 +69,11 @@ package struct MessagesPopover: View {
                     PaneContextActionButton(filter.control, isSelected: attentionType == filter.attentionType) {
                         attentionType = filter.attentionType
                     }
+                }
+            }
+            if let informationalToggle {
+                PaneContextActionButton(informationalToggle, isSelected: includesInformational) {
+                    includesInformational.toggle()
                 }
             }
             if let feedback { Text(feedback).foregroundStyle(.secondary) }
