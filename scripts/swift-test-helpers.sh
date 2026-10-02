@@ -853,6 +853,7 @@ large|SurfaceRendererVisibilityIntegrationTests|process-global
 fast|SwiftBuildSlotScriptTests|concurrent
 large|SwiftLaneHangEvidenceTests|concurrent
 large|SwiftLaneFastShardCoverageScriptTests|concurrent
+large|SwiftLaneFastShardHangEvidenceTests|concurrent
 large|SwiftLaneHelperCancellationTests|concurrent
 large|SwiftLaneIsolationListGateTests|concurrent
 large|SwiftLaneReceiptTests|concurrent

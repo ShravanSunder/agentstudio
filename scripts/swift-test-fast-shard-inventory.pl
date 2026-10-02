@@ -186,7 +186,7 @@ sub parse_event_ledger {
         }
 
         my @display_names = case_display_names($definition);
-        my @stable_ids = sort stable_case_ids($definition);
+        my @stable_ids = sort { $a cmp $b } stable_case_ids($definition);
         my $unstable_count = unstable_case_count($definition);
         push @functions, {
             id => $function_id,
@@ -237,6 +237,36 @@ sub validate_timing_receipt {
     if ($require_first_output) {
         my $first_output = $timing->{start_to_first_output_seconds};
         fail("$label: missing_start_to_first_output")
+            unless defined($first_output) && !ref($first_output) && looks_like_number($first_output) && $first_output >= 0;
+    }
+    return $timing;
+}
+
+sub collect_timing_receipt_errors {
+    my ($path, $label, $expected_functions, $expected_cases, $require_first_output, $coverage_errors) = @_;
+    my $timing = read_json_file($path, "$label timing");
+    push @$coverage_errors, "$label: command_status_not_zero"
+        unless defined($timing->{command_status}) && $timing->{command_status} == 0;
+
+    my $has_all_counts = 1;
+    for my $field (qw(announced_tests ended_tests started_parameterized_cases ended_parameterized_cases)) {
+        if (!defined $timing->{$field}) {
+            push @$coverage_errors, "$label: missing_timing_count field=$field";
+            $has_all_counts = 0;
+        }
+    }
+    if ($has_all_counts) {
+        push @$coverage_errors, "$label: timing_function_count_mismatch"
+            unless $timing->{announced_tests} == $expected_functions
+                && $timing->{ended_tests} == $expected_functions;
+        push @$coverage_errors, "$label: timing_case_count_mismatch"
+            unless $timing->{started_parameterized_cases} == $expected_cases
+                && $timing->{ended_parameterized_cases} == $expected_cases;
+    }
+
+    if ($require_first_output) {
+        my $first_output = $timing->{start_to_first_output_seconds};
+        push @$coverage_errors, "$label: missing_start_to_first_output"
             unless defined($first_output) && !ref($first_output) && looks_like_number($first_output) && $first_output >= 0;
     }
     return $timing;
@@ -376,21 +406,25 @@ sub parse_plan_file {
 }
 
 sub observed_function_records {
-    my ($ledger, $suite_shard, $shard_number, $label) = @_;
+    my ($ledger, $suite_shard, $shard_number, $coverage_errors) = @_;
     my %observed;
     for my $function (@{$ledger->{functions}}) {
         my $id = $function->{id};
-        fail("coverage_error=unexpected_function function=$id") unless exists $suite_shard->{$function->{suite_id}};
-        fail("coverage_error=function_in_wrong_shard function=$id expected_shard=$suite_shard->{$function->{suite_id}} actual_shard=$shard_number")
-            unless $suite_shard->{$function->{suite_id}} == $shard_number;
-        fail("coverage_error=duplicate_function function=$id") if $observed{$id};
+        my $expected_shard = $suite_shard->{$function->{suite_id}};
+        push @$coverage_errors,
+            "coverage_error=function_in_wrong_shard function=$id expected_shard=$expected_shard actual_shard=$shard_number"
+            if defined($expected_shard) && $expected_shard != $shard_number;
+        if (exists $observed{$id}) {
+            push @$coverage_errors, "coverage_error=duplicate_function function=$id";
+            next;
+        }
         $observed{$id} = $function;
     }
     return \%observed;
 }
 
 sub validate_observed_cases {
-    my ($expected, $observed, $ledger, $receipt_cases) = @_;
+    my ($expected, $observed, $ledger, $coverage_errors) = @_;
     my $function_id = $expected->{id};
     my $expected_count = defined($expected->{case_count}) ? $expected->{case_count}
         : scalar(@{$expected->{case_display_names} // []});
@@ -410,25 +444,34 @@ sub validate_observed_cases {
 
     my $has_identity_metadata = exists($expected->{stable_case_ids}) || exists($expected->{unstable_case_count});
     if (!$has_identity_metadata) {
-        fail("coverage_error=missing_case_display_name function=$function_id")
+        push @$coverage_errors, "coverage_error=missing_case_display_name function=$function_id"
             if keys(%expected_names) && grep { !$actual_names{$_} } keys %expected_names;
-        fail("coverage_error=unexpected_case_display_name function=$function_id")
+        push @$coverage_errors, "coverage_error=unexpected_case_display_name function=$function_id"
             if keys(%expected_names) && grep { !$expected_names{$_} } keys %actual_names;
     }
-    fail("coverage_error=missing_case function=$function_id")
+    push @$coverage_errors,
+        "coverage_error=missing_case function=$function_id expected=$expected_count started="
+            . scalar(@actual_started_cases) . " ended=" . scalar(@actual_ended_cases)
         unless @actual_started_cases == $expected_count && @actual_ended_cases == $expected_count;
 
     if (exists $expected->{stable_case_ids} || exists $expected->{unstable_case_count}) {
         my %expected_stable = map { $_ => 1 } @{$expected->{stable_case_ids} // []};
         my %actual_stable = map { $_->{id} => 1 }
             grep { $_->{isStable} } @observed_defined_cases;
-        fail("coverage_error=missing_stable_case function=$function_id")
-            if grep { !$actual_stable{$_} } keys %expected_stable;
-        fail("coverage_error=unexpected_stable_case function=$function_id")
-            if grep { !$expected_stable{$_} } keys %actual_stable;
+        for my $case_id (sort keys %expected_stable) {
+            push @$coverage_errors,
+                "coverage_error=missing_stable_case function=$function_id case=$case_id"
+                unless $actual_stable{$case_id};
+        }
+        for my $case_id (sort keys %actual_stable) {
+            push @$coverage_errors,
+                "coverage_error=unexpected_stable_case function=$function_id case=$case_id"
+                unless $expected_stable{$case_id};
+        }
         my $expected_unstable = $expected->{unstable_case_count} // 0;
         my $actual_unstable = scalar grep { !$_->{isStable} } @observed_defined_cases;
-        fail("coverage_error=unstable_case_count_mismatch function=$function_id expected=$expected_unstable actual=$actual_unstable")
+        push @$coverage_errors,
+            "coverage_error=unstable_case_count_mismatch function=$function_id expected=$expected_unstable actual=$actual_unstable"
             unless $expected_unstable == $actual_unstable;
     }
 
@@ -440,6 +483,10 @@ sub validate_observed_cases {
         @actual_started_cases;
 }
 
+# After adding tests, regenerate this checked-in inventory from one complete F2
+# event ledger and its timing receipt with:
+# SWIFT_TEST_FAST_SHARD_F2_EVENTS=... SWIFT_TEST_FAST_SHARD_F2_TIMING=... \
+# SWIFT_TEST_FAST_SHARD_F2_RUN_ID=... SWIFT_TEST_FAST_SHARD_F2_HEAD_SHA=... mise run ci:fast-shard-manifest
 sub create_manifest {
     my ($events_path, $timing_path, $run_id, $head_sha) = @_;
     fail('manifest_error=missing_source_run_id') unless defined($run_id) && length($run_id);
@@ -469,6 +516,7 @@ sub validate_shard_run {
     my @receipt_cases;
     my @receipt_functions;
     my @timings;
+    my @coverage_errors;
     my $observed_function_count = 0;
     my $observed_case_count = 0;
     for my $shard_number (1 .. $#$shards) {
@@ -476,17 +524,12 @@ sub validate_shard_run {
         my $events_path = "$capture_directory/$stem.events.jsonl";
         my $timing_path = "$capture_directory/$stem.timing.json";
         my $ledger = parse_event_ledger($events_path, "shard=$shard_number");
-        my $shard_functions = observed_function_records($ledger, $suite_shard, $shard_number, "shard=$shard_number");
+        my $shard_functions = observed_function_records($ledger, $suite_shard, $shard_number, \@coverage_errors);
         my $shard_expected_count = scalar grep { $suite_shard->{$_->{suite_id}} == $shard_number }
             @{$manifest->{functions}};
         my $shard_expected_cases = 0;
         $shard_expected_cases += (defined($_->{case_count}) ? $_->{case_count} : scalar(@{$_->{case_display_names} // []}))
             for grep { $suite_shard->{$_->{suite_id}} == $shard_number } @{$manifest->{functions}};
-        for my $function_id (sort keys %expected_functions) {
-            my $expected = $expected_functions{$function_id};
-            next unless $suite_shard->{$expected->{suite_id}} == $shard_number;
-            fail("coverage_error=missing_function function=$function_id") unless exists $shard_functions->{$function_id};
-        }
         for my $case_record (values %{$ledger->{case_start_records}}) {
             my $definition = $ledger->{function_definitions}{$case_record->{function_id}} // {};
             my %definitions = map { ($_->{id} // '') => $_ }
@@ -516,15 +559,21 @@ sub validate_shard_run {
         for my $function_id (sort keys %$shard_functions) {
             my $actual = $shard_functions->{$function_id};
             my $expected = $expected_functions{$function_id};
-            fail("coverage_error=unexpected_function function=$function_id") unless defined $expected;
-            fail("coverage_error=function_in_wrong_suite function=$function_id")
+            if (!defined $expected) {
+                push @coverage_errors, "coverage_error=unexpected_function function=$function_id";
+                next;
+            }
+            push @coverage_errors, "coverage_error=function_in_wrong_suite function=$function_id"
                 unless $expected->{suite_id} eq $actual->{suite_id};
-            fail("coverage_error=duplicate_function function=$function_id") if $observed_functions{$function_id};
-            fail("coverage_error=function_parameterization_changed function=$function_id")
+            if ($observed_functions{$function_id}) {
+                push @coverage_errors, "coverage_error=duplicate_function function=$function_id";
+            } else {
+                $observed_functions{$function_id} = 1;
+            }
+            push @coverage_errors, "coverage_error=function_parameterization_changed function=$function_id"
                 unless !!$expected->{parameterized} == !!$actual->{parameterized};
-            validate_observed_cases($expected, $actual, $ledger, \@receipt_cases)
+            validate_observed_cases($expected, $actual, $ledger, \@coverage_errors)
                 if $expected->{parameterized} || ($expected->{case_count} // 0) > 0;
-            $observed_functions{$function_id} = 1;
             push @receipt_functions, {
                 id => $function_id,
                 suite_id => $actual->{suite_id},
@@ -533,8 +582,9 @@ sub validate_shard_run {
             $observed_function_count++;
             $observed_case_count += $actual->{case_count};
         }
-        my $timing = validate_timing_receipt(
-            $timing_path, "shard=$shard_number", $shard_expected_count, $shard_expected_cases, 1
+        my $timing = collect_timing_receipt_errors(
+            $timing_path, "shard=$shard_number", $shard_expected_count, $shard_expected_cases, 1,
+            \@coverage_errors,
         );
         push @timings, {
             shard => $shard_number,
@@ -565,8 +615,10 @@ sub validate_shard_run {
     write_json_file($receipt_path, $receipt);
 
     for my $function_id (sort keys %expected_functions) {
-        fail("coverage_error=missing_function function=$function_id") unless exists $observed_functions{$function_id};
+        push @coverage_errors, "coverage_error=missing_function function=$function_id"
+            unless exists $observed_functions{$function_id};
     }
+    fail(join("\n", @coverage_errors)) if @coverage_errors;
     return $receipt;
 }
 
