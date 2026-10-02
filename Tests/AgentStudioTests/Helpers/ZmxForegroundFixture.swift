@@ -106,7 +106,11 @@ struct ZmxForegroundFixture: Sendable {
         } catch {
             writer.closeOnce()
             reader?.closeOnce()
-            throw error
+            // One snapshot, only on setup failure: distinguish a broken FIFO
+            // transfer from the real child failing to exec or exiting early.
+            let terminalOutput = try? await harness.sessionHistory(sessionId: sessionId.rawValue)
+            throw ForegroundFixtureSetupFailure(
+                underlying: String(describing: error), terminalOutput: terminalOutput)
         }
     }
 
@@ -249,10 +253,36 @@ private func openForegroundFIFO(path: String, flags: Int32) async throws -> Int3
     }
 }
 
+private struct ForegroundFixtureSetupFailure: Error, CustomStringConvertible {
+    let underlying: String
+    let terminalOutput: String?
+    var description: String {
+        "foreground fixture setup: \(underlying); terminal output: \(terminalOutput ?? "unavailable")"
+    }
+}
+
+private enum ForegroundFIFOTransferFailure: Error {
+    case zeroProgressWrite(bytesWritten: Int, expectedBytes: Int)
+    case prematureEOF(bytesRead: Int, expectedBytes: Int)
+}
+
 private func writeForegroundFIFO(descriptor: Int32, bytes: Data) async throws {
     try await withoutBlockingCooperativePool {
-        let count = bytes.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
-        guard count == bytes.count else { throw POSIXError(.EIO) }
+        var written = 0
+        while written < bytes.count {
+            let count = bytes.withUnsafeBytes { buffer in
+                write(descriptor, buffer.baseAddress?.advanced(by: written), bytes.count - written)
+            }
+            if count < 0 {
+                let failure = errno
+                if failure == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: failure) ?? .EIO)
+            }
+            guard count > 0 else {
+                throw ForegroundFIFOTransferFailure.zeroProgressWrite(bytesWritten: written, expectedBytes: bytes.count)
+            }
+            written += count
+        }
     }
 }
 
@@ -262,7 +292,14 @@ private func readForegroundBytes(descriptor: Int32, byteCount: Int) async throws
         while result.count < byteCount {
             var bytes = [UInt8](repeating: 0, count: byteCount - result.count)
             let count = bytes.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
-            guard count > 0 else { throw POSIXError(.EIO) }
+            if count < 0 {
+                let failure = errno
+                if failure == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: failure) ?? .EIO)
+            }
+            guard count > 0 else {
+                throw ForegroundFIFOTransferFailure.prematureEOF(bytesRead: result.count, expectedBytes: byteCount)
+            }
             result.append(contentsOf: bytes.prefix(count))
         }
         return result

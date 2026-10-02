@@ -13,6 +13,7 @@ struct ResumeZmxFixture: Sendable {
     let invocation: ResumeInvocation
     let reportPath: String
     let holdPath: String
+    let startupHoldPath: String
     let cliURL: URL
     let callsURL: URL
     let profileURL: URL
@@ -27,7 +28,8 @@ struct ResumeZmxFixture: Sendable {
         try FileManager.default.createDirectory(at: dotDirectory, withIntermediateDirectories: true)
         reportPath = root.appending(path: "resume-argv-fifo").path
         holdPath = root.appending(path: "resume-hold-fifo").path
-        for path in [reportPath, holdPath] {
+        startupHoldPath = root.appending(path: "resume-startup-hold-fifo").path
+        for path in [reportPath, holdPath, startupHoldPath] {
             guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
         callsURL = root.appending(path: "resume-calls")
@@ -63,8 +65,27 @@ struct ResumeZmxFixture: Sendable {
         let sessionId = try ProviderSessionId(rawValue: UUIDv7.generate().uuidString)
         invocation = ResumeInvocation(provider: provider, sessionId: sessionId)
         let zmxPath = try #require(harness.zmxPath)
+        // The marker remains on the blocked terminal's screen until the real
+        // attach reads it. Only then may the unmodified cold script print its
+        // notice: zmx otherwise starts the child before attaching the client.
+        let childGateScript = """
+            printf '%s\n' \(quoteResumeFixturePath(ResumeZmxProcessDriver.startupGateMarker))
+            /bin/cat "$1" >/dev/null
+            shift
+            exec "$@"
+            """
+        let wrapper = root.appending(path: "resume-zmx-startup-gate")
+        let wrapperScript = """
+            #!/bin/sh
+            session_id="$2"
+            shift 2
+            exec \(quoteResumeFixturePath(zmxPath)) attach "$session_id" /bin/sh -c \(quoteResumeFixturePath(childGateScript)) \
+                resume-startup-gate \(quoteResumeFixturePath(startupHoldPath)) "$@"
+            """
+        try wrapperScript.write(to: wrapper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
         let base = TerminalColdRestorePlan(
-            zmxExecutable: URL(fileURLWithPath: zmxPath), zmxDirectory: root,
+            zmxExecutable: wrapper, zmxDirectory: root,
             sessionID: .generateUUIDv7(), loginShell: URL(fileURLWithPath: "/bin/zsh"), folderCandidates: [root],
             notice: .init(linesByCandidateIndex: ["base notice"]), replayFile: nil, resume: nil, attemptID: .generate())
         plan = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
@@ -80,8 +101,18 @@ struct ResumeZmxFixture: Sendable {
         environment["ZDOTDIR"] = dotDirectory.path
         environment["ZMX_SESSION"] = ""
         environment["ZMX_SESSION_PREFIX"] = ""
-        return try await ResumeZmxProcessDriver.launch(
+        let driver = try await ResumeZmxProcessDriver.launch(
             command: ZmxBackend.buildColdRestoreCommand(plan), environment: environment)
+        do {
+            let attached = try await driver.expectStartupGate()
+            try #require(attached.contains(ResumeZmxProcessDriver.startupGateMarker))
+            try await releaseFIFO(path: startupHoldPath)
+            return driver
+        } catch {
+            try? await killOwnedSession()
+            try? await driver.stop()
+            throw error
+        }
     }
 
     func receiveArgv() async throws -> [String] {
@@ -103,9 +134,11 @@ struct ResumeZmxFixture: Sendable {
         }
     }
 
-    func releaseResume() async throws {
+    func releaseResume() async throws { try await releaseFIFO(path: holdPath) }
+
+    private func releaseFIFO(path: String) async throws {
         try await withoutBlockingCooperativePool {
-            let descriptor = open(holdPath, O_WRONLY)
+            let descriptor = open(path, O_WRONLY)
             guard descriptor >= 0 else { throw POSIXError(.EIO) }
             close(descriptor)
         }

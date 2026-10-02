@@ -7,6 +7,7 @@ import Synchronization
 import Testing
 
 private enum ResumeOutputFact: Equatable, Sendable {
+    case startupGate(String)
     case shellReady(String)
     case eof
     case failed(Int32)
@@ -18,6 +19,7 @@ private enum ResumeOutputFact: Equatable, Sendable {
 final class ResumeZmxProcessDriver: @unchecked Sendable {
     private struct State {
         var output = Data()
+        var startupGateSeen = false
         var shellSeen = false
         var readEnded = false
         var cancelled = false
@@ -25,6 +27,7 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         var exitConsumed = false
         var cancelConsumed = false
     }
+    static let startupGateMarker = "__RESUME_ATTACH_STARTUP_GATE__"
     static let shellMarker = "__RESUME_INTERACTIVE_SHELL_READY__"
     private let process = Process()
     private let pipe = Pipe()
@@ -95,6 +98,13 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         }
     }
 
+    func expectStartupGate() async throws -> String {
+        let fact = try await outputFacts.expectNext(
+            in: scope, where: { if case .startupGate = $0 { true } else { false } }, "real zmx attach at startup FIFO")
+        guard case .startupGate(let text) = fact else { throw POSIXError(.EPROTO) }
+        return text
+    }
+
     func expectInteractiveShell() async throws -> String {
         let fact = try await outputFacts.expectNext(
             in: scope, where: { if case .shellReady = $0 { true } else { false } }, "resume interactive shell output")
@@ -110,15 +120,21 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
                 Darwin.read(pipe.fileHandleForReading.fileDescriptor, $0.baseAddress, $0.count)
             }
             if count > 0 {
-                let ready = state.withLock { state -> String? in
+                let observed = state.withLock { state -> [ResumeOutputFact] in
                     state.output.append(contentsOf: bytes.prefix(count))
-                    guard !state.shellSeen,
-                        let text = String(data: state.output, encoding: .utf8), text.contains(Self.shellMarker)
-                    else { return nil }
-                    state.shellSeen = true
-                    return text
+                    guard let text = String(data: state.output, encoding: .utf8) else { return [] }
+                    var facts: [ResumeOutputFact] = []
+                    if !state.startupGateSeen, text.contains(Self.startupGateMarker) {
+                        state.startupGateSeen = true
+                        facts.append(.startupGate(text))
+                    }
+                    if !state.shellSeen, text.contains(Self.shellMarker) {
+                        state.shellSeen = true
+                        facts.append(.shellReady(text))
+                    }
+                    return facts
                 }
-                if let ready { outputSink(scope, .shellReady(ready)) }
+                for fact in observed { outputSink(scope, fact) }
             } else if count == 0 {
                 endRead(.eof)
                 return
