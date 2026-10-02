@@ -102,7 +102,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// registry and exposure rules.
     var appIPCServerChannel: AgentStudioIPCChannel = AppDelegate.compiledAppIPCChannel()
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
-    var appIPCSessionsIngestion: SessionsIngestion?
+    var appIPCSessionsPaneContextComposition: SessionsPaneContextComposition?
     var paneReportSpoolDrainTask: Task<Void, Never>?
     /// Exact provider profiles are composition input. Only the releases listed
     /// here grant provider-reported authority; every other provider, version or

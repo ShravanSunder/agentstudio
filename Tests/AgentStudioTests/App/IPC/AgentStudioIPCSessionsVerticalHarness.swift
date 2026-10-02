@@ -269,8 +269,8 @@ struct SessionsVerticalHarness {
     /// The pane's durable Sessions row, for a case that has to see history the
     /// `session.query` projection deliberately does not carry over the wire.
     func paneSnapshot(paneId: UUID) async throws -> SessionsSnapshot {
-        let ingestion = try #require(appDelegate.appIPCSessionsIngestion)
-        return try await ingestion.snapshot(
+        let composition = try #require(appDelegate.appIPCSessionsPaneContextComposition)
+        return try await composition.ingestion.snapshot(
             .pane(paneId, page: SessionsSnapshotPage(limit: 100, after: nil))
         )
     }

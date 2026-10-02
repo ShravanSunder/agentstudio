@@ -414,7 +414,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("let initializationTask = appIPCInitializationTask"))
         #expect(ipcBootSource.contains("initializationTask?.cancel()"))
         #expect(ipcBootSource.contains("await initializationTask?.value"))
-        #expect(ipcBootSource.contains("await finishAppIPCSessionsIngestion()"))
+        #expect(ipcBootSource.contains("await finishAppIPCSessionsPaneContext()"))
         #expect(!ipcBootSource.contains("func stopAppIPCServer()"))
 
         // Connection handlers are joined in the durable drain, before the
@@ -476,5 +476,41 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(mainWindowControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
         #expect(splitViewControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
         #expect(splitViewControllerSource.contains("PaneTabViewControllerPaneFocusAppControl"))
+    }
+    @Test("Boot uses one Sessions/PaneContext owner and joins ingress before settling and closing it")
+    func sessionsPaneContextBootLifetimeKeepsOwnerOrder() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let ipcBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift"),
+            encoding: .utf8)
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8)
+        let compositionSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/PaneContext/SessionsPaneContextComposition.swift"), encoding: .utf8)
+        #expect(!appDelegateSource.contains("appIPCSessionsIngestion"))
+        #expect(appDelegateSource.contains("var appIPCSessionsPaneContextComposition: SessionsPaneContextComposition?"))
+        #expect(ipcBootSource.contains("sessionsPort: sessionsComposition.liveSessionsAdapter"))
+        #expect(ipcBootSource.contains("paneContextPort: sessionsComposition.paneContextIPCAdapter"))
+        #expect(ipcBootSource.contains("PaneReportSpool(admission: sessionsComposition.lateSessionsAdapter)"))
+        let spoolJoin = try #require(ipcBootSource.range(of: "await spoolDrainTask?.value")?.lowerBound)
+        let handlerJoin = try #require(ipcBootSource.range(of: "await server.joinConnectionHandlers()")?.lowerBound)
+        let credentialDrain = try #require(
+            ipcBootSource.range(of: "await server.drainCredentialPersistence()")?.lowerBound)
+        let ownerStop = try #require(
+            ipcBootSource.range(
+                of: "await finishAppIPCSessionsPaneContext()", range: credentialDrain..<ipcBootSource.endIndex)?
+                .lowerBound)
+        #expect(spoolJoin < handlerJoin)
+        #expect(handlerJoin < credentialDrain)
+        #expect(credentialDrain < ownerStop)
+        let shutdownStart = try #require(compositionSource.range(of: "func shutdown() async {")?.upperBound)
+        let shutdownEnd = try #require(
+            compositionSource.range(of: "\n    }", range: shutdownStart..<compositionSource.endIndex)?.lowerBound)
+        let shutdownBody = compositionSource[shutdownStart..<shutdownEnd]
+        let serviceStop = try #require(shutdownBody.range(of: "await paneContextService.stop()")?.lowerBound)
+        let ingestionFinish = try #require(shutdownBody.range(of: "await ingestion.finish()")?.lowerBound)
+        #expect(serviceStop < ingestionFinish)
     }
 }

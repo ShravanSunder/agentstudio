@@ -61,6 +61,7 @@ final class WorkspaceSurfaceCoordinator {
     let store: WorkspaceStore
     var paneActivityClock: PaneActivityClock?
     var sessionsPaneViewedMailbox: SessionsPaneViewedMailbox?
+    weak var paneContextService: PaneContextService?
     let undoClock: @Sendable () async throws -> WorkspaceUndoJournalTime
     let undoDelay: AsyncDelay
     let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -456,6 +457,7 @@ final class WorkspaceSurfaceCoordinator {
         let retiredPaneIDs = Array(paneIDs)
         paneActivityClock?.retire(retiredPaneIDs)
         sessionsPaneViewedMailbox?.retire(retiredPaneIDs)
+        paneContextService?.retire(retiredPaneIDs.map { PaneId(existingUUID: $0) })
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
