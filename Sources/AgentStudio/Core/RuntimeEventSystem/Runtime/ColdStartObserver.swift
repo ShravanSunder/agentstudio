@@ -86,6 +86,12 @@ package actor ColdStartObserver {
     /// ownership directly instead of through kernel or queue timing. See
     /// `ColdStartProcessWatchSource.swift`.
     private let processWatchSourceMaker: ColdStartProcessWatchSourceMaker
+    /// R3-3 item 2 (review round 3, Lead decision 2026-10-02): owner-local
+    /// typed facts, mirroring `TerminalActivityProjector`'s own `factSink`
+    /// exactly -- `nil` in every production caller, no behavior change.
+    /// Lets a test prove which guard actually ran instead of inferring it
+    /// from timing. See `ColdStartObserverFacts.swift`.
+    private let factSink: ColdStartObserverFactSink?
     private var settlementContinuation: CheckedContinuation<ColdStartOutcome, Never>?
     /// Set when `settle()` runs before `observeColdStart` ever started —
     /// `reportAttachClientExited()` is registered (via
@@ -109,11 +115,13 @@ package actor ColdStartObserver {
         syscalls: any ColdStartObserverSyscalls = DarwinColdStartObserverSyscalls(),
         targetQueue: DispatchQueue = DispatchQueue(
             label: "com.agentstudio.coldStartObserver.watch", qos: .userInitiated),
-        processWatchSourceMaker: @escaping ColdStartProcessWatchSourceMaker = defaultColdStartProcessWatchSourceMaker
+        processWatchSourceMaker: @escaping ColdStartProcessWatchSourceMaker = defaultColdStartProcessWatchSourceMaker,
+        factSink: ColdStartObserverFactSink? = nil
     ) {
         self.syscalls = syscalls
         self.targetQueue = targetQueue
         self.processWatchSourceMaker = processWatchSourceMaker
+        self.factSink = factSink
     }
 
     /// Runs the full two-stage watch for one cold-restore attempt, returning
@@ -204,7 +212,8 @@ package actor ColdStartObserver {
             queue: targetQueue
         )
         source.setEventHandler { [weak self] in
-            self?.checkForSocketAndAdvance(socketPath: socketPath, bootID: bootID, attemptID: attemptID)
+            self?.checkForSocketAndAdvance(
+                socketPath: socketPath, bootID: bootID, attemptID: attemptID, trigger: .directoryEvent)
         }
         // A4: closes the descriptor this source owns, exactly once, only
         // once cancellation has actually completed -- `dispatch_source
@@ -236,7 +245,8 @@ package actor ColdStartObserver {
         // completes (or appear between completion and this firing — the
         // event handler fires again and re-checks harmlessly).
         source.setRegistrationHandler { [weak self] in
-            self?.checkForSocketAndAdvance(socketPath: socketPath, bootID: bootID, attemptID: attemptID)
+            self?.checkForSocketAndAdvance(
+                socketPath: socketPath, bootID: bootID, attemptID: attemptID, trigger: .registration)
         }
         directoryWatchSource = source
         source.resume()
@@ -249,11 +259,21 @@ package actor ColdStartObserver {
     /// here, since a refused connect now retries with a real `Task.sleep`
     /// (see `attemptDiscoveryConnect`), which this `nonisolated` function
     /// itself cannot `await`.
+    ///
+    /// R3-3 item 2 (review round 3, Lead decision 2026-10-02): `trigger`
+    /// names which callback this run came from and is posted unconditionally
+    /// -- before the existence guard below, not after -- so a test can prove
+    /// the registration handler's own mandatory check actually ran, even on
+    /// a call where the socket does not exist yet. `self.factSink` is a
+    /// `let`, read here the same way `self.syscalls`/`self.targetQueue`
+    /// already are from this `nonisolated` function.
     nonisolated private func checkForSocketAndAdvance(
         socketPath: String,
         bootID: String,
-        attemptID: ColdRestoreAttemptID
+        attemptID: ColdRestoreAttemptID,
+        trigger: ColdStartSocketCheckTrigger
     ) {
+        factSink?(.socketCheckRan(trigger))
         guard FileManager.default.fileExists(atPath: socketPath) else { return }
         Task {
             await self.attemptDiscoveryConnect(
@@ -427,9 +447,19 @@ package actor ColdStartObserver {
     /// exit/failure callback that was already queued before that
     /// transition cannot fail an attempt whose handoff watch may still
     /// succeed.
+    ///
+    /// R3-3 item 2 (review round 3, Lead decision 2026-10-02): posts the
+    /// disposition as the last step of whichever branch this guard takes --
+    /// `.ignoredAsStale` is the closing fact a negative proof needs, since
+    /// without it "nothing changed after the stale callback" is
+    /// indistinguishable from "nothing has run yet".
     private func settleFromSetsidWatch(_ outcome: ColdStartOutcome) {
-        guard !isSettled, !hasBegunHandoffWatch else { return }
+        guard !isSettled, !hasBegunHandoffWatch else {
+            factSink?(.setsidSettlementProcessed(.ignoredAsStale))
+            return
+        }
         settle(outcome)
+        factSink?(.setsidSettlementProcessed(.applied))
     }
 
     private func discoverySettled(

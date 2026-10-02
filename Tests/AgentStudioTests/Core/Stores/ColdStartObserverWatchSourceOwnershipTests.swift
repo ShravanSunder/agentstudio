@@ -284,31 +284,39 @@ struct ColdStartObserverWatchSourceOwnershipTests {
     /// on that pre-emptive, long-superseded source and invoked only then
     /// is still ignored.
     ///
-    /// A single, directly awaited `observeColdStart` call is the only
-    /// synchronization this test relies on: its continuation resumes only
-    /// once `settle()` has actually run, so by the time it returns, every
-    /// source's final cancellation state is a settled fact, not a guess
-    /// about how far an unstructured `Task` got (the same class of gap
-    /// F1/A2 fixed in production discovery). Driving the stale callback
-    /// through a second, competing in-flight call was considered and
-    /// rejected: nothing here can prove which of two *concurrently queued*
-    /// actor jobs the runtime would service first without assuming an
-    /// ordering Swift's concurrency model does not document as a
-    /// guarantee -- exactly the kind of timing assumption this suite's own
-    /// technique exists to avoid.
+    /// The directly awaited `observeColdStart` call is the first
+    /// synchronization point: its continuation resumes only once `settle()`
+    /// has actually run, so by the time it returns, every source's final
+    /// cancellation state is a settled fact, not a guess about how far an
+    /// unstructured `Task` got (the same class of gap F1/A2 fixed in
+    /// production discovery). Driving the stale callback through a second,
+    /// competing in-flight call was considered and rejected: nothing here
+    /// can prove which of two *concurrently queued* actor jobs the runtime
+    /// would service first without assuming an ordering Swift's
+    /// concurrency model does not document as a guarantee -- exactly the
+    /// kind of timing assumption this suite's own technique exists to
+    /// avoid.
+    ///
+    /// R3-3 item 2 (review round 3, Lead decision 2026-10-02): the stale
+    /// callback itself (Act 3) is the second synchronization point --
+    /// `settleFromSetsidWatch` posts `ColdStartObserverFact
+    /// .setsidSettlementProcessed` as its own guard's last step, and this
+    /// test now awaits that fact before asserting, rather than asserting
+    /// immediately after `simulateEvent` and hoping the callback's own
+    /// unstructured `Task` has already run.
     ///
     /// Scope honestly stated: at the point this test fires the stale
     /// callback, `isSettled` is already true, so `settle()`'s own
     /// pre-existing guard alone would already have ignored it even without
     /// `settleFromSetsidWatch`'s added `hasBegunHandoffWatch` check. That
     /// narrower real-world window -- a stale callback arriving after
-    /// handoff begins but before it settles, which only the new guard
-    /// covers -- is not isolated here; doing so soundly needs either a new
-    /// fact the production fix does not otherwise require, or an
-    /// unproven assumption about which of two concurrently queued actor
-    /// jobs runs first. This test still proves the ownership/leak half of
-    /// R2-1 rigorously, and proves the queued-callback half is ignored in
-    /// the one scenario the review's own proof describes in order
+    /// handoff begins but before it settles -- is still not isolated here:
+    /// proving it would need the fact sink to also distinguish *which*
+    /// guard decided (or an unproven assumption about job order), beyond
+    /// what this round's fix adds. This test still proves the
+    /// ownership/leak half of R2-1 rigorously, and now causally proves the
+    /// queued-callback half is ignored (not merely "nothing observed yet")
+    /// in the one scenario the review's own proof describes in order
     /// ("hand off and settle", then "invoke... after handoff").
     @Test(
         "repeated pendingSetsid discovery keeps exactly one current setsid source, and a callback queued on a superseded one stays inert after real handoff and settlement"
@@ -351,7 +359,24 @@ struct ColdStartObserverWatchSourceOwnershipTests {
         // since this test only needs settlement to have genuinely
         // happened, not to hold it open.
         syscalls.processArgumentsResult = .success(makeEmptyArgumentVectorBuffer())
-        let observer = ColdStartObserver(syscalls: syscalls, processWatchSourceMaker: recordingMaker.maker)
+        // R3-3 item 2 (review round 3, Lead decision 2026-10-02): the only
+        // call to `settleFromSetsidWatch` anywhere in this test's flow is
+        // Act 3's stale callback below (the normal handoff at Act 2 settles
+        // through `discoverySettled`'s own `.identity` case instead, never
+        // this guard) -- so awaiting this fact's `.ignoredAsStale`
+        // disposition there is unambiguous proof the guard actually ran
+        // and decided, not silence because nothing has run yet.
+        let settlementFactSource = LocalFactSource(
+            vocabulary: FactVocabulary<String, ColdStartObserverFact>(
+                describeScope: { $0 },
+                describeFact: { "\($0)" },
+                isClosing: { _, _ in false }
+            ))
+        let settlementFactRecorder = try settlementFactSource.attach()
+        let settlementFactSink = settlementFactSource.sink
+        let observer = ColdStartObserver(
+            syscalls: syscalls, processWatchSourceMaker: recordingMaker.maker,
+            factSink: { fact in settlementFactSink("coldStartObserverFact", fact) })
 
         // Act 1: the pre-emptive, independent setsid watch.
         await observer.beginSetsidWatch(
@@ -389,6 +414,17 @@ struct ColdStartObserverWatchSourceOwnershipTests {
         // settleFromSetsidWatch for real, rather than staying inert by the
         // fake's own, unrelated construction.
         preemptiveSetsidSource.simulateEvent(exitFired: true)
+
+        // R3-3 item 2: awaited before asserting -- `settleFromSetsidWatch`
+        // runs on an unstructured `Task` the fake's `simulateEvent` does
+        // not itself await, so an assertion right after it could otherwise
+        // run before the guard has decided anything at all. This fact is
+        // posted as that guard's own last step, so observing it here is
+        // proof the guard genuinely ran and chose `.ignoredAsStale`, not
+        // merely that nothing has happened yet.
+        let settlementDisposition = try await settlementFactRecorder.expectNext(
+            in: "coldStartObserverFact", where: { _ in true }, "stale setsid callback settlement")
+        #expect(settlementDisposition == .setsidSettlementProcessed(.ignoredAsStale))
 
         // Assert: ignored. No new source, and the already-settled handoff
         // source stays cancelled exactly once -- not torn down a second
