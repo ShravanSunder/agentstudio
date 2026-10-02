@@ -17,6 +17,12 @@
 # AsyncProcess.swift:223-245 at the swift-6.3.3-RELEASE tag.
 SWIFT_TEST_SIGINT_CANCELLATION_GRACE_SECONDS=35
 
+# F2 run 36844611102 measured about 651 CPU-s for 5,533 test units (0.118 CPU-s
+# per unit). With three shard processes on three cores, one shard stays below
+# half of the 60 s test limit when 0.118*K <= 30, so K <= 254; use K = 250.
+FAST_LANE_SHARD_UNIT_CAPACITY=250
+FAST_LANE_SHARD_PROCESS_CONCURRENCY=3
+
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 # shellcheck source=scripts/swift-package-sandbox.sh
@@ -849,6 +855,8 @@ large|StartupPerformanceWorkloadScriptTests|concurrent
 large|SurfaceRendererVisibilityIntegrationTests|process-global
 fast|SwiftBuildSlotScriptTests|concurrent
 large|SwiftLaneHangEvidenceTests|concurrent
+large|SwiftLaneFastShardCoverageScriptTests|concurrent
+large|SwiftLaneFastShardHangEvidenceTests|concurrent
 large|SwiftLaneHelperCancellationTests|concurrent
 large|SwiftLaneIsolationListGateTests|concurrent
 large|SwiftLaneReceiptTests|concurrent
@@ -1578,7 +1586,10 @@ dispatch_isolated_suites() {
   local concurrency next_filter=0 active_count=0 dispatch_ordinal=0
   local slot suite_filter reporter_pid completed_slot completed_pid completed_status completed_reason waited_status
   local lane_status=0 timing_eligible_ms dispatch_dir fifo_path
-  if [ "$lane_kind" = webkit ]; then
+  if [ "$lane_kind" = fast-shard ]; then
+    concurrency="$FAST_LANE_SHARD_PROCESS_CONCURRENCY"
+    swift_test_output_message "[$LOG_PREFIX] native fast shard process concurrency: $concurrency"
+  elif [ "$lane_kind" = webkit ]; then
     concurrency="$(swift_test_webkit_process_concurrency)"
     swift_test_output_message "[$LOG_PREFIX] WebKit process-global concurrency: $concurrency"
   else
@@ -1611,7 +1622,11 @@ dispatch_isolated_suites() {
           export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
           export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
           local worker_status=0
-          (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
+          if [ "$lane_kind" = fast-shard ]; then
+            (run_selected_fast_shard "$suite_filter" "$dispatch_ordinal" "$slot" "$concurrency") &
+          else
+            (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
+          fi
           local worker_pid=$!
           # If SIGKILL lands before this write, the reporter has no worker PID to reap.
           printf '%s\n' "$worker_pid" >"$dispatch_dir/worker-$slot"
@@ -1663,9 +1678,14 @@ dispatch_isolated_suites() {
       [ "$completed_reason" != completed ]; then
       lane_status=1
       if [ "$lane_kind" != webkit ] || [ "$completed_reason" != completed ]; then
-        echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
-          "status=$completed_status signal=$(swift_test_signal_name "$completed_status") reason=$completed_reason" >&2
-        swift_test_record_failed_isolated_suite "$suite_filter" "$completed_status"
+        if [ "$lane_kind" = fast-shard ]; then
+          echo "[$LOG_PREFIX] native fast shard failed: shard=$completed_slot filter=$suite_filter" \
+            "status=$completed_status signal=$(swift_test_signal_name "$completed_status") reason=$completed_reason" >&2
+        else
+          echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
+            "status=$completed_status signal=$(swift_test_signal_name "$completed_status") reason=$completed_reason" >&2
+          swift_test_record_failed_isolated_suite "$suite_filter" "$completed_status"
+        fi
       fi
     fi
   done
@@ -1736,22 +1756,171 @@ fast_non_webkit_skip_pattern() {
   return 0
 }
 
-run_fast_non_webkit_swift_tests() {
-  # Swift Testing provides in-process case concurrency, bounded by the explicit
-  # SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH exported below. SwiftPM's
-  # --parallel harness is not used for the fast inventory; suites that need a
-  # process of their own get one from the isolated phases that follow.
-  local fast_lane_skip_pattern
-  if ! fast_lane_skip_pattern="$(fast_non_webkit_skip_pattern)"; then
-    printf '[test] failed to prepare fast-lane skip pattern; no fast suites were started\n' >&2
+swift_test_fast_native_suite_types() {
+  local inventory="$1"
+  local fast_concurrent_types aggregate_serial_types suite_type serial_type is_serialized
+  local -a aggregate_serial_suite_types=()
+
+  fast_concurrent_types="$(swift_test_lane_suite_types fast concurrent "$inventory")" || return $?
+  aggregate_serial_types="$(aggregate_serial_non_webkit_suite_filters)" || return $?
+  while IFS= read -r serial_type; do
+    [ -n "$serial_type" ] || continue
+    aggregate_serial_suite_types+=("$serial_type")
+  done <<<"$aggregate_serial_types"
+
+  while IFS= read -r suite_type; do
+    [ -n "$suite_type" ] || continue
+    is_serialized=0
+    for serial_type in "${aggregate_serial_suite_types[@]}"; do
+      if [ "$suite_type" = "$serial_type" ]; then
+        is_serialized=1
+        break
+      fi
+    done
+    [ "$is_serialized" -eq 0 ] && printf '%s\n' "$suite_type"
+  done <<<"$fast_concurrent_types"
+  return 0
+}
+
+swift_test_fast_shard_suite_filter_pattern() {
+  local suite_id="$1"
+  local escaped_suite_id
+  escaped_suite_id="$(printf '%s' "$suite_id" | /usr/bin/sed 's/[^A-Za-z0-9_]/\\&/g')"
+  printf '^%s(/|$)' "$escaped_suite_id"
+}
+
+run_selected_fast_shard() {
+  local suite_filter="$1" shard_number="$2" slot="$3" concurrency="$4"
+  local formatted_shard label label_slug invocation_directory events_path timing_path candidate_path
+  local swift_test_bundle swift_testing_helper testing_framework_path command_status=0
+
+  formatted_shard="$(printf '%03d' "$shard_number")"
+  label="native fast shard $formatted_shard"
+  label_slug="$(lane_event_stream_label_slug "$label")"
+  invocation_directory="$SWIFT_TEST_FAST_SHARD_CAPTURE_DIR/invocation-$formatted_shard"
+  mkdir -p "$invocation_directory"
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  swift_testing_helper="$(swift_testing_helper_path)"
+  testing_framework_path="$(swift_testing_framework_path)"
+
+  LANE_EVENT_STREAM_DIR="$invocation_directory" LANE_EVENT_STREAM_RETAIN_ALWAYS=1 \
+    LANE_TIMING_PHASE=fast-shard LANE_TIMING_FILTER="$suite_filter" \
+    LANE_TIMING_BATCH="$shard_number" LANE_TIMING_SLOT="$slot" \
+    LANE_TIMING_CONCURRENCY="$concurrency" run_swift_with_timeout \
+    "$label" "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+      --filter "$suite_filter" "$swift_test_bundle" --testing-library swift-testing || command_status=$?
+
+  events_path=""
+  for candidate_path in "$invocation_directory/lane-$label_slug-"*.events.jsonl; do
+    [ -f "$candidate_path" ] || continue
+    events_path="$candidate_path"
+  done
+  if [ -n "$events_path" ]; then
+    timing_path="${events_path%.events.jsonl}.timing.json"
+    cp "$events_path" "$SWIFT_TEST_FAST_SHARD_CAPTURE_DIR/shard-$formatted_shard.events.jsonl" || {
+      echo "[$LOG_PREFIX] failed to copy fast shard event ledger shard=$shard_number" >&2
+      command_status=1
+    }
+    if [ -f "$timing_path" ]; then
+      cp "$timing_path" "$SWIFT_TEST_FAST_SHARD_CAPTURE_DIR/shard-$formatted_shard.timing.json" || {
+        echo "[$LOG_PREFIX] failed to copy fast shard timing receipt shard=$shard_number" >&2
+        command_status=1
+      }
+    else
+      echo "[$LOG_PREFIX] fast shard timing receipt missing shard=$shard_number" >&2
+      command_status=1
+    fi
+  else
+    echo "[$LOG_PREFIX] fast shard event ledger missing shard=$shard_number" >&2
+    command_status=1
+  fi
+  return "$command_status"
+}
+
+run_fast_sharded_native_swift_tests() {
+  local lane_inventory fast_native_suite_types manifest_path script_path capture_directory
+  local suite_types_path plan_path plan_contents dispatch_status=0 validation_status=0
+  local record_type shard_number third_field suite_id suite_pattern current_pattern shard_count=0
+  local -a shard_filters=()
+  manifest_path="$(dirname "${BASH_SOURCE[0]}")/swift-test-fast-shard-manifest.json"
+  script_path="$(dirname "${BASH_SOURCE[0]}")/swift-test-fast-shard-inventory.pl"
+  if [ ! -r "$manifest_path" ]; then
+    printf '[%s] fast shard manifest missing path=%s\n' "$LOG_PREFIX" "$manifest_path" >&2
+    return 1
+  fi
+  if ! lane_inventory="$(swift_test_suite_lane_inventory)"; then
+    printf '[%s] failed to read native fast suite inventory\n' "$LOG_PREFIX" >&2
+    return 1
+  fi
+  if ! fast_native_suite_types="$(swift_test_fast_native_suite_types "$lane_inventory")"; then
+    printf '[%s] failed to generate native fast suite inventory\n' "$LOG_PREFIX" >&2
     return 1
   fi
 
-  run_swift_with_timeout \
-    "native-concurrent fast non-WebKit suites" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --skip "$fast_lane_skip_pattern" --build-path "$BUILD_PATH"
+  capture_directory="$LANE_EVENT_STREAM_DIR/fast-shard-coverage-$(date +%Y%m%dT%H%M%S)-$$"
+  mkdir -p "$capture_directory"
+  suite_types_path="$capture_directory/native-suite-types.txt"
+  plan_path="$capture_directory/shard-plan.tsv"
+  printf '%s\n' "$fast_native_suite_types" >"$suite_types_path"
+  if ! /usr/bin/perl "$script_path" inventory "$manifest_path" "$suite_types_path"; then
+    return 1
+  fi
+  if ! /usr/bin/perl "$script_path" plan "$manifest_path" "$FAST_LANE_SHARD_UNIT_CAPACITY" >"$plan_path"; then
+    return 1
+  fi
+  plan_contents="$(cat "$plan_path")"
+  while IFS=$'\t' read -r record_type shard_number third_field; do
+    case "$record_type" in
+      SHARD)
+        shard_count="$shard_number"
+        shard_filters[$shard_number]=""
+        ;;
+      SUITE)
+        suite_id="$third_field"
+        if ! suite_pattern="$(swift_test_fast_shard_suite_filter_pattern "$suite_id")"; then
+          printf '[%s] failed to anchor native fast suite id=%s\n' "$LOG_PREFIX" "$suite_id" >&2
+          return 1
+        fi
+        current_pattern="${shard_filters[$shard_number]:-}"
+        if [ -n "$current_pattern" ]; then
+          shard_filters[$shard_number]="$current_pattern|$suite_pattern"
+        else
+          shard_filters[$shard_number]="$suite_pattern"
+        fi
+        ;;
+      *)
+        printf '[%s] invalid native fast shard plan row=%s\n' "$LOG_PREFIX" "$record_type" >&2
+        return 1
+        ;;
+    esac
+  done <<<"$plan_contents"
+  [ "$shard_count" -gt 0 ] || {
+    printf '[%s] native fast shard plan was empty\n' "$LOG_PREFIX" >&2
+    return 1
+  }
+
+  local SWIFT_TEST_FAST_SHARD_CAPTURE_DIR="$capture_directory"
+  export SWIFT_TEST_FAST_SHARD_CAPTURE_DIR
+  swift_test_output_message "[$LOG_PREFIX] native fast shards=$shard_count capacity=$FAST_LANE_SHARD_UNIT_CAPACITY concurrency=$FAST_LANE_SHARD_PROCESS_CONCURRENCY"
+  dispatch_isolated_suites fast-shard "${shard_filters[@]}" || dispatch_status=$?
+
+  /usr/bin/perl "$script_path" validate "$manifest_path" "$plan_path" \
+    "$capture_directory" "$capture_directory/coverage.json" || validation_status=$?
+  echo "[$LOG_PREFIX] lane-report fast_shard_command_status=$dispatch_status"
+  echo "[$LOG_PREFIX] lane-report fast_shard_coverage_status=$validation_status"
+  if [ "$dispatch_status" -ne 0 ] || [ "$validation_status" -ne 0 ]; then
+    return 1
+  fi
+  return 0
+}
+
+run_fast_non_webkit_swift_tests() {
+  # Run ordinary native suites as rolling, whole-suite batches through the
+  # built helper. Process-global suites retain their separate isolation phase.
+  run_fast_sharded_native_swift_tests
 
   run_aggregate_serial_non_webkit_swift_tests
   run_fast_serial_process_swift_tests
@@ -1897,7 +2066,7 @@ lane_timing_now_ms() {
 
 write_lane_timing_sidecar() {
   local sidecar_path="$1" label="$2" child_timing_file="$3" dispatch_ms="$4"
-  local wrapper_complete_ms="$5" timed_out="$6" event_stream_path="$7"
+  local wrapper_complete_ms="$5" timed_out="$6" event_stream_path="$7" first_output_ms="${8:-}"
   local child_start_ms="" child_exit_ms="" child_status=""
   if [ -r "$child_timing_file" ]; then
     IFS=' ' read -r child_start_ms child_exit_ms child_status <"$child_timing_file" || true
@@ -1908,10 +2077,13 @@ write_lane_timing_sidecar() {
     LANE_TIMING_COMPLETE="$wrapper_complete_ms" LANE_TIMING_TIMEOUT="$timed_out" \
     LANE_TIMING_CAP="${LANE_TIMING_CONCURRENCY:-}" \
     LANE_TIMING_PHASE="${LANE_TIMING_PHASE:-}" \
+    LANE_TIMING_FIRST_OUTPUT="$first_output_ms" \
     LANE_TIMING_EVENT_FILE="$event_stream_path" \
     /usr/bin/perl -MJSON::PP -e '
       sub nullable_number { defined $_[0] && $_[0] =~ /^[0-9]+$/ ? 0 + $_[0] : undef }
       sub nullable_text { defined $_[0] && length $_[0] ? $_[0] : undef }
+      my $command_start = nullable_number($ENV{LANE_TIMING_START});
+      my $first_output = nullable_number($ENV{LANE_TIMING_FIRST_OUTPUT});
       my $record = {
         schema_version => 1, lane => $ENV{LANE_TIMING_LANE}, label => $ENV{LANE_TIMING_LABEL},
         phase => nullable_text($ENV{LANE_TIMING_PHASE}),
@@ -1925,6 +2097,8 @@ write_lane_timing_sidecar() {
         command_exit_ms => nullable_number($ENV{LANE_TIMING_EXIT}),
         command_status => nullable_number($ENV{LANE_TIMING_STATUS}),
         wrapper_complete_ms => nullable_number($ENV{LANE_TIMING_COMPLETE}),
+        start_to_first_output_seconds => defined($command_start) && defined($first_output)
+            && $first_output >= $command_start ? ($first_output - $command_start) / 1000 : undef,
         timed_out => $ENV{LANE_TIMING_TIMEOUT} eq "1" ? JSON::PP::true : JSON::PP::false,
         event_stream_file => nullable_text($ENV{LANE_TIMING_EVENT_FILE}),
       };
@@ -2251,6 +2425,7 @@ swift_test_run_with_timeout_body() {
   local last_output_size=0
   local watchdog_state
   local timed_out=0
+  local first_output_ms=""
 
   local xcb_pipe
   xcb_pipe=$(_xcb_pipe_cmd)
@@ -2296,7 +2471,7 @@ swift_test_run_with_timeout_body() {
     swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
       "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
     write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
-      "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" "" || true
+      "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" "" "$first_output_ms" || true
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 1
   fi
@@ -2309,6 +2484,9 @@ swift_test_run_with_timeout_body() {
     local elapsed_seconds=$((now_epoch - start_epoch))
     local output_size
     output_size=$(wc -c <"$output_file" | tr -d '[:space:]')
+    if [ -z "$first_output_ms" ] && [ "$output_size" -gt 0 ]; then
+      first_output_ms="$(lane_timing_now_ms 2>/dev/null || true)"
+    fi
     if ! watchdog_state="$(
       swift_test_watchdog_state \
         "$last_output_size" \
@@ -2333,7 +2511,7 @@ swift_test_run_with_timeout_body() {
       [ -f "$evidence_stem.events.jsonl" ] && retained_event_stream="$evidence_stem.events.jsonl"
       write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
         "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" \
-        "$retained_event_stream"
+        "$retained_event_stream" "$first_output_ms"
       return 1
     fi
     read -r last_output_size last_progress_epoch <<<"$watchdog_state"
@@ -2358,6 +2536,10 @@ swift_test_run_with_timeout_body() {
       last_heartbeat="$now_epoch"
     fi
   done
+
+  if [ -z "$first_output_ms" ] && [ -s "$output_file" ]; then
+    first_output_ms="$(lane_timing_now_ms 2>/dev/null || true)"
+  fi
 
   if [ "$timed_out" -eq 1 ]; then
     echo "[$LOG_PREFIX] ERROR: no output progress from '$label' for ${timeout_seconds}s"
@@ -2418,7 +2600,7 @@ swift_test_run_with_timeout_body() {
     [ -f "$evidence_stem.events.jsonl" ] && retained_event_stream="$evidence_stem.events.jsonl"
     write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
       "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" \
-      "$retained_event_stream"
+      "$retained_event_stream" "$first_output_ms"
     return 124
   fi
 
@@ -2464,7 +2646,7 @@ swift_test_run_with_timeout_body() {
   fi
   write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
     "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" \
-    "$retained_event_stream"
+    "$retained_event_stream" "$first_output_ms"
   return "$command_status"
 }
 
