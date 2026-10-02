@@ -148,8 +148,53 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure) {}
     }
 
+    /// R2-2 (review round 2, Lead 2026-10-01): the second `createSurface`
+    /// call -- the suite's first repair attempt, after the initial mount's
+    /// own successful first call -- fails; every call after that succeeds,
+    /// the same shape `SucceedingRestoreSurfaceManager` uses otherwise.
+    /// `SucceedingRestoreSurfaceManager` cannot fail for this residual at
+    /// all (the review's own words), so this exists specifically to prove
+    /// the preserved generation survives one real failed replacement and
+    /// reinstalls on the next one that succeeds.
+    @MainActor
+    private final class FailingFirstRepairSurfaceManager: WorkspaceSurfaceManaging {
+        private(set) var createdSurfaceIDsInOrder: [UUID] = []
+        private var surfacesByID: [UUID: Ghostty.SurfaceView] = [:]
+        private var callCount = 0
+
+        func syncFocus(activeSurfaceId: UUID?) {}
+        func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
+        func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+        func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+
+        func createSurface(
+            config: Ghostty.SurfaceConfiguration,
+            metadata: SurfaceMetadata
+        ) -> Result<ManagedSurface, SurfaceError> {
+            callCount += 1
+            guard callCount != 2 else {
+                return .failure(.creationFailed(retries: 0))
+            }
+            let surfaceID = UUIDv7.generate()
+            let surface = Ghostty.SurfaceView(
+                managedSurfaceID: surfaceID,
+                appCommandDispatcher: ReplacementNoOpAppCommandDispatcher()
+            )
+            surfacesByID[surfaceID] = surface
+            createdSurfaceIDsInOrder.append(surfaceID)
+            return .success(ManagedSurface(id: surfaceID, surface: surface, metadata: metadata))
+        }
+
+        @discardableResult
+        func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? { surfacesByID[surfaceId] }
+        func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
+        func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
+        func destroy(_ surfaceId: UUID) {}
+        func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure) {}
+    }
+
     private func makeCoordinator(
-        surfaceManager: SucceedingRestoreSurfaceManager,
+        surfaceManager: any WorkspaceSurfaceManaging,
         windowLifecycleStore: WindowLifecycleAtom
     ) throws -> WorkspaceSurfaceCoordinator {
         let store = try makeWorkspaceJournalTestStore()
@@ -435,6 +480,147 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         )
     }
 
+    /// R2-2 (review round 2, Lead 2026-10-01): the residual
+    /// `arrangeArmedAndRepairedPane` cannot cover -- its
+    /// `SucceedingRestoreSurfaceManager` never fails, so `executeRepair`'s
+    /// own failure branch (`WorkspaceSurfaceCoordinator+ViewHelpers.swift`'s
+    /// `.recreateSurface` case, the `guard createViewForRepair(for: pane) !=
+    /// nil else { ...; return }` arm) never ran under test before this.
+    ///
+    /// Same arm-and-mount steps as `arrangeArmedAndRepairedPane`, then two
+    /// real repairs instead of one:
+    /// 1. a first `executeRepair(.recreateSurface)` against
+    ///    `FailingFirstRepairSurfaceManager` (its second
+    ///    `createSurface` call, which fails) -- asserts the pane's view is
+    ///    torn down with nothing to replace it, and that the generation
+    ///    survived into `pendingRestorePhaseLatchesByPaneID` rather than
+    ///    being silently dropped;
+    /// 2. a second `executeRepair(.recreateSurface)` (the manager's third
+    ///    call, which succeeds) -- asserts the new surface inherits that
+    ///    same generation and the pending entry is cleared, proving the
+    ///    reinstall-on-success path in the same production method.
+    ///
+    /// Stops short of delivering input, exactly like
+    /// `arrangeArmedAndRepairedPane` -- each `@Test` does that itself.
+    private func arrangeArmedPaneSurvivingOneFailedRepairBeforeASuccessfulOne(
+        bindingID: UUID
+    ) async throws -> ReplacementScenario {
+        let windowLifecycleStore = WindowLifecycleAtom()
+        windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 400, height: 300))
+        let surfaceManager = FailingFirstRepairSurfaceManager()
+        let coordinator = try makeCoordinator(
+            surfaceManager: surfaceManager, windowLifecycleStore: windowLifecycleStore)
+        let pane = makeTabbedPane(coordinator: coordinator, launchDirectory: URL(fileURLWithPath: "/tmp"))
+
+        let projector = TerminalActivityProjector()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        bindProjector(projector, bindingID: bindingID, factSink: source.sink)
+
+        // 1. Arm and mount the initial surface -- identical to
+        // `arrangeArmedAndRepairedPane`'s own steps 1 and the latch-setting
+        // mount that follows; see that function's comments for why each
+        // call is shaped this way.
+        let generation = RestoreGenerationAllocator.allocate()
+        let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
+            paneID: pane.id, restoreGeneration: generation)
+        #expect(acknowledgment == .armed)
+        let armedFact = try await recorder.expectNext(
+            in: pane.id,
+            where: {
+                if case .restorePhaseArmed = $0 { return true }
+                return false
+            },
+            "restorePhaseArmed"
+        )
+        guard case .restorePhaseArmed(let armedGeneration) = armedFact, armedGeneration == generation else {
+            Issue.record("expected restorePhaseArmed(\(generation)), got \(armedFact)")
+            throw ReplacementTestFailure.setupDidNotSucceed
+        }
+        #expect(await projector.isRestorePhaseActive(paneID: pane.id))
+
+        let authority: TerminalSurfaceCreationAuthority = .released(PaneId(existingUUID: pane.id))
+        let sessionID = try #require(pane.terminalState?.zmxSessionID)
+        guard
+            case .mounted(let initialMount) = coordinator.createTopologyIndependentTerminalView(
+                for: pane,
+                initialFrame: NSRect(x: 0, y: 0, width: 400, height: 300),
+                treatAsRestoredSessionStart: true,
+                authority: authority,
+                restoreKind: .cold(makeFallbackPlan(sessionID: sessionID)),
+                armedRestoreGeneration: generation
+            )
+        else {
+            Issue.record("expected the initial mount to succeed")
+            throw ReplacementTestFailure.setupDidNotSucceed
+        }
+        let preRepairSurface = try #require(initialMount.view.ghosttySurface)
+        #expect(preRepairSurface.restorePhaseLatch == generation)
+
+        // 2. First repair attempt: the manager's second `createSurface`
+        // call, which fails. `executeRepair`'s `.recreateSurface` case tears
+        // down the old view before attempting the replacement, so there is
+        // nothing left in the registry when this returns -- confirmed by
+        // reading that case directly.
+        coordinator.executeRepair(.recreateSurface(paneId: pane.id))
+        #expect(
+            coordinator.viewRegistry.terminalView(for: pane.id) == nil,
+            "a failed replacement must leave no view behind to hold the generation on"
+        )
+        #expect(
+            coordinator.pendingRestorePhaseLatchesByPaneID[pane.id] == generation,
+            "the open generation must survive the failed attempt instead of being dropped"
+        )
+        #expect(surfaceManager.createdSurfaceIDsInOrder.count == 1, "the failing call must not register a surface")
+
+        // 3. Second repair attempt: the manager's third call, which
+        // succeeds -- this is the real reinstall path, not a hand-set latch.
+        coordinator.executeRepair(.recreateSurface(paneId: pane.id))
+        let repairedSurface = try #require(coordinator.viewRegistry.terminalView(for: pane.id)?.ghosttySurface)
+        #expect(repairedSurface !== preRepairSurface, "repair must replace the native surface, not reuse it")
+        #expect(
+            surfaceManager.createdSurfaceIDsInOrder.count == 2,
+            "expected one surface from the initial mount and a second from the successful repair"
+        )
+        #expect(
+            repairedSurface.restorePhaseLatch == generation,
+            "the surviving generation must reinstall onto the surface that finally succeeded"
+        )
+        #expect(
+            coordinator.pendingRestorePhaseLatchesByPaneID[pane.id] == nil,
+            "the pending entry must clear once the generation is reinstalled for real"
+        )
+
+        // Register with `SurfaceManager.shared` and replay a pre-end output
+        // burst -- identical to `arrangeArmedAndRepairedPane`'s own closing
+        // steps; see that function's comments for why each is needed.
+        guard
+            case .success = SurfaceManager.shared.acceptCreatedSurface(
+                repairedSurface, metadata: SurfaceMetadata(paneId: pane.id))
+        else {
+            Issue.record("expected SurfaceManager.shared to accept the replacement surface")
+            throw ReplacementTestFailure.setupDidNotSucceed
+        }
+        SurfaceManager.shared.attach(repairedSurface.managedSurfaceID, to: pane.id)
+
+        let outcomes = ReplacementOutcomeRecorder()
+        await projector.configure(outcomeSink: { recorded in outcomes.record(recorded) })
+        await projector.ingest(
+            surfaceID: repairedSurface.managedSurfaceID,
+            paneID: pane.id,
+            aggregate: makeReplacementAggregate(firstTotal: 100, latestTotal: 140),
+            latestState: ScrollbarState(top: 130, bottom: 140, total: 140),
+            context: TerminalActivityProjectionContext(
+                isAttended: false, isAgentClassified: false, outputBurstThreshold: 30)
+        )
+
+        return ReplacementScenario(
+            coordinator: coordinator, projector: projector, outcomes: outcomes, facts: recorder, paneID: pane.id,
+            generation: generation, preRepairSurface: preRepairSurface, repairedSurface: repairedSurface,
+            bindingID: bindingID
+        )
+    }
+
     /// Drains and awaits the resulting fact after real input already fired
     /// `endRestorePhaseIfLatched()` on `scenario.repairedSurface`. Asserts
     /// the generation matches and that the projector reflects the phase
@@ -562,6 +748,30 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
             // `endRestorePhaseIfLatched()` runs first and unconditionally
             // (`GhosttySurfaceView+Input.swift:510`).
             scenario.repairedSurface.paste(nil)
+
+            try await drainAndAssertRestorePhaseEndedExactlyOnce(scenario)
+        } catch {
+            await scenario.tearDown()
+            throw error
+        }
+        await scenario.tearDown()
+    }
+
+    @Test(
+        "the generation survives a failed replacement and reinstalls onto the one that succeeds, then a real keyDown still ends the restore phase exactly once at the projector"
+    )
+    func realKeyDownAfterFailedThenSucceededReplacementEndsRestorePhase() async throws {
+        let bindingID = UUIDv7.generate()
+        let scenario = try await arrangeArmedPaneSurvivingOneFailedRepairBeforeASuccessfulOne(
+            bindingID: bindingID)
+        do {
+            // 3. Real first-person input on the surface that finally
+            // succeeded -- never `markRestorePhaseEnded` or
+            // `applyOrderedControl` by hand, and never a hand-set latch:
+            // the arrange helper above proved the latch got there through
+            // the real failed-then-succeeded repair chain alone.
+            scenario.repairedSurface.keyDown(
+                with: try #require(makeKeyEvent(characters: "a", charactersIgnoringModifiers: "a")))
 
             try await drainAndAssertRestorePhaseEndedExactlyOnce(scenario)
         } catch {

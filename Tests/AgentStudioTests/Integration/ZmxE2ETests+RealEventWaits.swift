@@ -45,12 +45,36 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// loop was built to find IS the value that satisfies it, so this
     /// function returns it directly and every caller asserts on that
     /// returned identity.
+    ///
+    /// R2-4 item 3 (review round 2, Lead 2026-10-01): two separate residuals
+    /// corrected here:
+    /// 1. the FD-lifetime defect A4 already fixed once in production and
+    ///    this file's own `awaitAlreadyRunningProcessExit`/
+    ///    `awaitMarkerInProcessOutput` never had -- a bare `defer { close(
+    ///    directoryFileDescriptor) }` races `eventSource.cancel()`'s
+    ///    asynchronous request (source.h:512) rather than running from its
+    ///    cancel handler, the SDK's own documented safe point;
+    /// 2. waiting for the next directory event after one of the four
+    ///    transient connect failures below. `ZmxBackend.observeSessionIdentity`
+    ///    only returns `nil` while the socket file is genuinely absent
+    ///    (confirmed by reading it directly: every one of these four is
+    ///    thrown only after that absence check already failed) -- so by the
+    ///    time this catches one, the socket already exists, and `listen`,
+    ///    `setsid` and process-readiness finishing do not necessarily
+    ///    produce another write/rename on this directory. A failed read
+    ///    could wait past a daemon that is already answering correctly.
+    ///    Retried instead with the identical backoff schedule
+    ///    `ColdStartObserver.attemptDiscoveryConnect` and
+    ///    `ZmxTestHarness.resolveSettledDiscovery` already use for the same
+    ///    failure class, bounded only by the suite's own runner-owned hang
+    ///    bound, never a private time budget. The directory watch itself is
+    ///    unchanged for the genuinely-absent case below: the socket file
+    ///    appearing IS a write/rename on this directory.
     func awaitSessionIdentityOnRealEvent(
         _ sessionID: ZmxSessionID, backend: ZmxBackend, zmxDirectory: String
     ) async throws -> Data {
         let directoryFileDescriptor = open(zmxDirectory, O_EVTONLY)
         guard directoryFileDescriptor >= 0 else { throw ZmxSessionControlFailure.unavailable }
-        defer { close(directoryFileDescriptor) }
 
         let scope = "zmxDirectoryEvent"
         let source = LocalFactSource(
@@ -84,21 +108,34 @@ extension E2ESerializedTests.ZmxE2ETests {
             // firing across every retry, not just the first.
             sink(scope, ())
         }
-        eventSource.setCancelHandler {}
+        // A4-shaped: closes the descriptor this source owns, exactly once,
+        // only once cancellation has actually completed.
+        eventSource.setCancelHandler {
+            close(directoryFileDescriptor)
+        }
         eventSource.resume()
         defer { eventSource.cancel() }
 
+        let clock = ContinuousClock()
+        let transientConnectRetryDelaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
+        var transientConnectRetryIndex = 0
         while true {
             do {
                 if let identity = try await backend.observeSessionIdentity(sessionID) {
                     return identity
                 }
+                // Genuinely absent, not a transient connect failure: the
+                // socket file appearing is itself a write/rename on
+                // `zmxDirectory`, so waiting for the next one is correct.
+                _ = try await recorder.expectNext(in: scope, where: { _ in true }, "zmx directory event")
             } catch ZmxSessionControlFailure.unavailable, ZmxSessionControlFailure.connectionRefused,
                 ZmxSessionControlFailure.processUnverifiable, ZmxSessionControlFailure.timeout
             {
-                // Transient -- fall through to wait for the next real event.
+                let delayIndex = min(
+                    transientConnectRetryIndex, transientConnectRetryDelaysMilliseconds.count - 1)
+                try await clock.sleep(for: .milliseconds(transientConnectRetryDelaysMilliseconds[delayIndex]))
+                transientConnectRetryIndex += 1
             }
-            _ = try await recorder.expectNext(in: scope, where: { _ in true }, "zmx directory event")
         }
     }
 

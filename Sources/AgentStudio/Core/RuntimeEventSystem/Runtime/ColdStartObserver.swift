@@ -338,6 +338,13 @@ package actor ColdStartObserver {
         // different, earlier discovery observation) must not install a new
         // watch -- nothing would ever cancel it.
         guard !isSettled, !hasBegunHandoffWatch else { return }
+        // R2-1 (review round 2, Lead 2026-10-01): registration and a
+        // directory event can each start an independent discovery connect,
+        // and both can observe `.pendingSetsid` before either reaches
+        // handoff -- each call here must not silently drop a still-active
+        // predecessor's source. Cancel it first, matching the identical
+        // line already in `beginHandoffWatch` below for the same reason.
+        processWatchSource?.cancel()
         let source = processWatchSourceMaker(terminalPID, [.exit, .exec], targetQueue)
         source.setEventHandler { [weak self] exitFired in
             self?.checkForSetsidAndAdvance(
@@ -379,7 +386,15 @@ package actor ColdStartObserver {
             // .pendingSetsid at all) -- it's the leader itself that died,
             // the exact fact reportAttachClientExited() and stage 2's own
             // exitFired branch already settle unconditionally.
-            Task { await self.settle(.failed(.exitedBeforeHandoff(exitStatus: nil))) }
+            //
+            // R2-1: routed through settleFromSetsidWatch, not settle
+            // directly -- cancellation is asynchronous (A4's own reasoning,
+            // applied to process sources too), so a callback already queued
+            // on this source before beginHandoffWatch cancelled and
+            // superseded it can still run after this attempt has moved on.
+            // That queued callback must not fail an attempt whose real
+            // handoff watch (a different source) may still succeed.
+            Task { await self.settleFromSetsidWatch(.failed(.exitedBeforeHandoff(exitStatus: nil))) }
             return
         }
         switch syscalls.observeSession(path: socketPath, bootID: bootID) {
@@ -394,14 +409,27 @@ package actor ColdStartObserver {
             // The exec event that woke this watch carried no NOTE_EXIT, but
             // the re-observe found the leader already a confirmed-dead
             // zombie -- proof of death, same as attemptDiscoveryConnect's
-            // own handling, not "not yet."
-            Task { await self.settle(.failed(.exitedBeforeHandoff(exitStatus: nil))) }
+            // own handling, not "not yet." R2-1: same superseded-callback
+            // reasoning as the exitFired branch above.
+            Task { await self.settleFromSetsidWatch(.failed(.exitedBeforeHandoff(exitStatus: nil))) }
         case .failure:
             // A genuinely different failure than the one that started this
             // watch (e.g. the endpoint disappeared underneath it): resolve
             // through the existing settlement logic rather than looping.
             Task { await self.discoverySettled(identity: nil, socketPath: socketPath, attemptID: attemptID) }
         }
+    }
+
+    /// R2-1 (review round 2, Lead 2026-10-01): the setsid stage's own
+    /// version of `discoverySettled`'s superseded-callback guard above --
+    /// `hasBegunHandoffWatch` is set the moment this attempt commits to
+    /// handoff, independent of `isSettled`, so a setsid watch's own
+    /// exit/failure callback that was already queued before that
+    /// transition cannot fail an attempt whose handoff watch may still
+    /// succeed.
+    private func settleFromSetsidWatch(_ outcome: ColdStartOutcome) {
+        guard !isSettled, !hasBegunHandoffWatch else { return }
+        settle(outcome)
     }
 
     private func discoverySettled(

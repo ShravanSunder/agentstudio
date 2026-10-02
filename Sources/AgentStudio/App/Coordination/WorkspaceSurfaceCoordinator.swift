@@ -168,6 +168,16 @@ final class WorkspaceSurfaceCoordinator {
     /// exists yet; `InboxNotificationRouter` stays retired). `nil` in
     /// production, a `LocalFactSource.sink` in tests.
     var postAttachRecreationCheckFactSink: (@Sendable (UUID, PaneRecreationCheckOutcome) -> Void)?
+    /// R2-2 (review round 2, Lead 2026-10-01): `executeRepair`'s own
+    /// `restorePhaseLatch` carry-across (A5) only covers a replacement that
+    /// succeeds. A failed `.recreateSurface` (creation/attachment failure)
+    /// has no surface left to hold the generation on, but the projector's
+    /// own phase survives the failure by design (SR6b) -- this is where
+    /// that generation waits until a later repair, `.recreateSurface` or
+    /// `.createMissingView`, actually succeeds and reinstalls it. Cleared
+    /// on successful reinstall or permanent retirement (`retirePanesPermanently`),
+    /// never on a failed attempt alone.
+    var pendingRestorePhaseLatchesByPaneID: [UUID: RestoreGeneration] = [:]
     var bridgePaneRetirementsRequiringRuntimeUnregister: Set<UUID> = []
     var bridgePaneRetirementsRequiringRestore: Set<UUID> = []
     var filesystemSyncTask: Task<Void, Never>?
@@ -376,6 +386,7 @@ final class WorkspaceSurfaceCoordinator {
         }
         postAttachRecreationCheckTasksByPaneID.removeAll()
         pendingPostAttachRecreationChecksByPaneID.removeAll()
+        pendingRestorePhaseLatchesByPaneID.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
@@ -454,6 +465,7 @@ final class WorkspaceSurfaceCoordinator {
         }
         postAttachRecreationCheckTasksByPaneID.removeAll()
         pendingPostAttachRecreationChecksByPaneID.removeAll()
+        pendingRestorePhaseLatchesByPaneID.removeAll()
 
         await repositoryFactDemandCoordinator.shutdown()
         await filesystemProjectionIndex.shutdown()
@@ -555,6 +567,10 @@ final class WorkspaceSurfaceCoordinator {
             if pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneID) != nil {
                 postAttachRecreationCheckFactSink?(paneID, .uncheckable(.paneUnavailableBeforeFirstOutput))
             }
+            // R2-2: a pane retiring permanently with no surface left to
+            // reinstall its preserved generation onto never gets one --
+            // there is no later repair to wait for.
+            pendingRestorePhaseLatchesByPaneID.removeValue(forKey: paneID)
         }
     }
 

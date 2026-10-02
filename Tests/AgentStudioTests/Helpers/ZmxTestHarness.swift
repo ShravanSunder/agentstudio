@@ -360,7 +360,15 @@ final class ZmxTestHarness: @unchecked Sendable {
                 timeout: timeout
             )
         }
-        defer { close(directoryFileDescriptor) }
+        // R2-4 item 2 (review round 2, Lead 2026-10-01): ownership of this
+        // descriptor passes to `awaitSessionSocketEvent`, which now closes
+        // it from its own dispatch source's cancel handler -- the SDK's
+        // documented safe boundary (source.h:449), matching A4's own
+        // `closeWatchedDirectory`-from-cancel-handler shape in production.
+        // A bare `defer` here would close it the instant that call
+        // returns, which is not the same moment: `dispatch_source_cancel`
+        // only requests cancellation (source.h:512), so this scope's own
+        // close could race the source's still-in-flight teardown.
         return await awaitSessionSocketEvent(
             fileDescriptor: directoryFileDescriptor,
             sessionSocketPath: sessionSocketPath,
@@ -575,9 +583,20 @@ final class ZmxTestHarness: @unchecked Sendable {
             // schedule's own last entry it keeps retrying at that entry's
             // cadence -- bounded only by the suite's runner-owned hang
             // bound, never by a time budget of its own.
+            //
+            // R2-4 item 1 (review round 2, Lead 2026-10-01): `try?`
+            // swallowed every throw from `clock.sleep`, cancellation
+            // included -- the suite's own hang bound relies on task
+            // cancellation to end an owned wait, and this loop kept
+            // retrying through it regardless. `try await` instead: this
+            // function is already `async throws`, so a thrown
+            // `CancellationError` (or any other) now ends the retry here
+            // and propagates to `waitUntilSessionSettled`'s own caller
+            // exactly as every other failure case in this `switch` already
+            // does, rather than retrying past it.
             let delaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
             let delayIndex = min(retryIndex, delaysMilliseconds.count - 1)
-            try? await clock.sleep(for: .milliseconds(delaysMilliseconds[delayIndex]))
+            try await clock.sleep(for: .milliseconds(delaysMilliseconds[delayIndex]))
             return try await resolveSettledDiscovery(socketPath: socketPath, bootID: bootID, retryIndex: retryIndex + 1)
         case .failure(let failure):
             throw failure
@@ -597,11 +616,25 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// Register-then-check, exactly like `ColdStartObserver
     /// .beginSetsidWatch`/`checkForSetsidAndAdvance`: the leader can
     /// complete setsid and exec between the `.pendingSetsid` observation
-    /// above and this registration, so the immediate check right after
-    /// `resume()` catches that already-true fact instead of missing the
-    /// kqueue event and hanging. The same event handler serves later
-    /// `NOTE_EXEC`/`NOTE_EXIT` events too, staying armed on a
-    /// still-`.pendingSetsid` read.
+    /// above and this registration, so the mandatory initial check must
+    /// run only once kernel registration is confirmed complete, not
+    /// synchronously after `resume()` returns on the caller's own Task.
+    ///
+    /// R2-4 item 2 (review round 2, Lead 2026-10-01): the prior shape ran
+    /// that initial check synchronously right after `resume()`, which only
+    /// requests registration -- the SDK's own contract (source.h:745) says
+    /// the registration handler fires "once the corresponding kevent() has
+    /// been registered with the system, following the initial
+    /// dispatch_resume()". A transition landing in the gap between
+    /// `resume()` returning and kernel registration actually completing
+    /// could be missed by both: the kqueue wasn't registered yet to catch
+    /// it as an edge, and the synchronous check had already read "still
+    /// pending." Setting `setRegistrationHandler` before `resume()`, and
+    /// running the same check from it, closes that gap -- the same one F1
+    /// fixed in production. Both the event handler and the registration
+    /// handler now run on this source's own GCD queue and may call
+    /// `arriveBlocking` directly; there is no longer a separate
+    /// caller's-Task code path.
     private func resolveViaSetsidWatch(
         terminalPID: Int32,
         socketPath: String,
@@ -619,10 +652,10 @@ final class ZmxTestHarness: @unchecked Sendable {
             queue: DispatchQueue.global(qos: .userInitiated)
         )
 
-        // Pure: nil means "not settled yet, stays armed." Shared by the GCD
-        // callback and the immediate register-then-check below, since only
-        // the former may call `arriveBlocking` -- the latter runs on this
-        // async function's own Task and would misuse it.
+        // Pure: nil means "not settled yet, stays armed." Shared by the
+        // registration handler's mandatory initial check and the event
+        // handler's later re-checks -- both now run on this source's own
+        // GCD queue, never on the caller's Task.
         func outcome(exitFired: Bool) -> Result<ZmxSessionIdentity, any Error>? {
             if exitFired {
                 return .failure(SessionSettlementError.terminalLeaderExitedBeforeSetsid(terminalPID: terminalPID))
@@ -639,25 +672,33 @@ final class ZmxTestHarness: @unchecked Sendable {
             }
         }
 
+        // One shared check, called from both the event handler and the
+        // registration handler -- mirroring `ColdStartObserver
+        // .beginSetsidWatch`'s own `checkForSetsidAndAdvance` shape.
+        // Idempotent: a settled source is already cancelled, so a harmless
+        // re-entry from the other callback finds nothing left to check
+        // (`outcome` would be called again, but `step.arriveBlocking` after
+        // the first `firstArrival()` only records and is ignored).
+        func checkAndSettleIfReady(exitFired: Bool) {
+            guard let result = outcome(exitFired: exitFired) else { return }
+            source.cancel()
+            // A raw GCD callback on .global(), not inside a Swift Task.
+            try? step.arriveBlocking(result)
+        }
+
         source.setEventHandler {
-            if let result = outcome(exitFired: source.data.contains(.exit)) {
-                source.cancel()
-                // A raw GCD callback on .global(), not inside a Swift Task.
-                try? step.arriveBlocking(result)
-            }
+            checkAndSettleIfReady(exitFired: source.data.contains(.exit))
         }
         source.setCancelHandler {}
-        source.resume()
-
-        // Register-then-check: setsid (and the exec after it) may already
-        // have completed by the time this registers. An already-settled
-        // result here short-circuits directly, cancelling the source
-        // before any `firstArrival()` wait is even needed -- this call runs
-        // on the caller's own Task, so it must not touch `arriveBlocking`.
-        if let immediateResult = outcome(exitFired: false) {
-            source.cancel()
-            return try immediateResult.get()
+        // The mandatory initial check: `exitFired: false` mirrors the event
+        // handler's own shape for this call -- this firing carries no real
+        // `NOTE_EXIT`, so an already-dead leader is still caught by
+        // `ZmxSessionControl.observeForDiscovery`'s own `.terminalLeaderGone`
+        // case inside `outcome`, not assumed from this call alone.
+        source.setRegistrationHandler {
+            checkAndSettleIfReady(exitFired: false)
         }
+        source.resume()
 
         let settled = try await step.firstArrival()
         step.release()
@@ -675,6 +716,19 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// true negative result (not just a hang) must race this against a
     /// correlated real fact of its own -- the zmx process it expected to
     /// create the socket exiting -- not against time.
+    ///
+    /// R2-4 item 2 (review round 2, Lead 2026-10-01): the prior shape ran
+    /// its "register-then-check" synchronously on the caller's own Task
+    /// right after `resume()`, which only requests kernel registration
+    /// (source.h:745) -- a transition landing in the gap before that
+    /// registration actually completes could be missed by both the
+    /// not-yet-armed kqueue and the already-run synchronous check. Moving
+    /// the mandatory initial check into `setRegistrationHandler` closes
+    /// that gap, mirroring `resolveViaSetsidWatch`'s identical fix above.
+    /// The cancel handler now also owns closing `fileDescriptor` -- the
+    /// caller (`waitForSessionSocket`) no longer does, for the same A4
+    /// reasoning: only the cancel handler is the SDK's documented
+    /// safe-to-close point (source.h:449).
     private func awaitSessionSocketEvent(
         fileDescriptor: Int32,
         sessionSocketPath: String,
@@ -686,26 +740,42 @@ final class ZmxTestHarness: @unchecked Sendable {
             eventMask: [.write, .rename, .delete],
             queue: DispatchQueue.global(qos: .userInitiated)
         )
-        eventSource.setEventHandler {
-            let currentExists = FileManager.default.fileExists(atPath: sessionSocketPath)
-            if currentExists == expectedExists {
-                eventSource.cancel()
-                // A raw GCD callback on .global(), not inside a Swift Task.
-                try? step.arriveBlocking(true)
-            }
-        }
-        eventSource.setCancelHandler {}
-        eventSource.resume()
 
-        // Register-then-check: this call runs on the caller's own Task, so
-        // it must not touch `arriveBlocking`.
-        if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
+        // Shared by the registration handler's mandatory initial check and
+        // the event handler's later re-checks -- both run on this source's
+        // own GCD queue, never on the caller's Task, so both may call
+        // `arriveBlocking` directly. Idempotent: a settled source is
+        // already cancelled, so a harmless re-entry from the other
+        // callback finds nothing new to do.
+        func checkAndSettleIfReady() {
+            guard FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists else { return }
             eventSource.cancel()
-            return true
+            // A raw GCD callback on .global(), not inside a Swift Task.
+            try? step.arriveBlocking(true)
         }
+
+        eventSource.setEventHandler {
+            checkAndSettleIfReady()
+        }
+        // A4-shaped: closes the descriptor this source owns, exactly once,
+        // only once cancellation has actually completed.
+        eventSource.setCancelHandler {
+            close(fileDescriptor)
+        }
+        // The mandatory initial check, run once kernel registration is
+        // confirmed complete -- not synchronously after `resume()` returns.
+        eventSource.setRegistrationHandler {
+            checkAndSettleIfReady()
+        }
+        eventSource.resume()
 
         let result = (try? await step.firstArrival()) ?? false
         step.release()
+        // Safety net, not the primary path: if `firstArrival()` returned
+        // through external cancellation rather than a matched check above,
+        // the source may still be live -- cancelling here is a no-op when
+        // already cancelled, and still routes the descriptor's close
+        // through the cancel handler either way.
         eventSource.cancel()
         return result
     }

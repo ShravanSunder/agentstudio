@@ -379,11 +379,31 @@ extension WorkspaceSurfaceCoordinator {
             // replacement and waits for this latch's input signal. Carry it
             // across the repair by hand: capture it from the surface about to
             // be torn down, and re-arm it on whatever surface replaces it.
-            let preservedRestorePhaseLatch = viewRegistry.terminalView(for: paneId)?.ghosttySurface?
-                .restorePhaseLatch
+            //
+            // R2-2 (review round 2, Lead 2026-10-01): a failed replacement
+            // below used to discard this local value outright -- the
+            // projector's own phase survives the failure (by design), but
+            // nothing was left to reinstall once a *later* repair finally
+            // succeeded, so that surface's first real input did nothing and
+            // activity stayed suppressed forever. Falling back to
+            // `pendingRestorePhaseLatchesByPaneID` covers the case where an
+            // earlier attempt already failed and no surface exists yet to
+            // capture the generation from directly.
+            let preservedRestorePhaseLatch =
+                viewRegistry.terminalView(for: paneId)?.ghosttySurface?.restorePhaseLatch
+                ?? pendingRestorePhaseLatchesByPaneID[paneId]
             teardownView(for: paneId, shouldUnregisterRuntime: false)
             guard createViewForRepair(for: pane) != nil else {
                 Self.logger.error("repair recreateSurface failed for pane \(paneId)")
+                // R2-2: preserve the active generation through this failed
+                // attempt instead of discarding it -- a later repair that
+                // succeeds (recreateSurface again, or createMissingView)
+                // still reinstalls it. The projector's own phase is left
+                // untouched either way; this never clears it and never
+                // re-runs cold classification.
+                if let preservedRestorePhaseLatch {
+                    pendingRestorePhaseLatchesByPaneID[paneId] = preservedRestorePhaseLatch
+                }
                 return
             }
             // `createViewForRepair` returns the bare content view (a
@@ -401,6 +421,8 @@ extension WorkspaceSurfaceCoordinator {
             if let preservedRestorePhaseLatch {
                 viewRegistry.terminalView(for: paneId)?.ghosttySurface?.restorePhaseLatch =
                     preservedRestorePhaseLatch
+                // R2-2: reinstalled for real -- no longer pending.
+                pendingRestorePhaseLatchesByPaneID.removeValue(forKey: paneId)
             }
             Self.logger.info("Repaired view for pane \(paneId)")
 
@@ -418,6 +440,16 @@ extension WorkspaceSurfaceCoordinator {
             guard createViewForRepair(for: pane) != nil else {
                 Self.logger.error("repair createMissingView failed for pane \(paneId)")
                 return
+            }
+            // R2-2 (review round 2, Lead 2026-10-01): this path can also be
+            // the one that finally succeeds after an earlier
+            // `.recreateSurface` attempt failed and left a generation
+            // pending -- reinstall it here too, the same way
+            // `.recreateSurface`'s own success path does above.
+            if let preservedRestorePhaseLatch = pendingRestorePhaseLatchesByPaneID[paneId] {
+                viewRegistry.terminalView(for: paneId)?.ghosttySurface?.restorePhaseLatch =
+                    preservedRestorePhaseLatch
+                pendingRestorePhaseLatchesByPaneID.removeValue(forKey: paneId)
             }
             Self.logger.info("Created missing view for pane \(paneId)")
 

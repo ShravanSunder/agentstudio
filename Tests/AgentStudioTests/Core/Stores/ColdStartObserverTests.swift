@@ -694,6 +694,36 @@ struct ColdStartObserverTests {
     /// deadlines of its own). After the fix, the registration-handler-
     /// driven check only runs once this test resumes the queue, by which
     /// point the file already exists, and it is observed correctly.
+    ///
+    /// R2-4 item 4 (review round 2, Lead 2026-10-01), corrected and its
+    /// residual disclosed rather than claimed away:
+    ///
+    /// 1. the prior version ordered file creation only by `async let`'s own
+    ///    program order, which does not guarantee the child task has even
+    ///    reached `source.resume()` by then -- a file created too early
+    ///    would satisfy the old, buggy synchronous-after-`resume()` check
+    ///    too. Fixed by awaiting `openDirectoryForWatching`'s own call fact
+    ///    first: its doc comment confirms this fires from inside
+    ///    `beginDiscovery`'s non-suspending body, with no suspension point
+    ///    before `source.resume()`, so that stretch cannot be interrupted
+    ///    on the same thread. Unlike `directoryDescriptorStaysOpenUntil
+    ///    CancellationCompletes`'s use of the same fact (`ColdStartObserver
+    ///    WatchSourceOwnershipTests.swift`), this test never re-enters the
+    ///    actor afterward, so it does not need that test's stronger
+    ///    before-`cancel()`-can-enter-the-actor guarantee.
+    /// 2. disclosed, not fixed: a real kqueue write event for this file can
+    ///    still be generated once kernel registration completes (independent
+    ///    of `testQueue`'s own suspension) and queued alongside the
+    ///    registration handler, both released by the same `testQueue
+    ///    .resume()` below -- so this test's one assertion cannot tell
+    ///    whether the registration handler or the ordinary event handler
+    ///    served it. An event callback can mask removal of the mandatory
+    ///    registration check entirely. Closing that deterministically needs
+    ///    an injectable fake for this directory watch source, mirroring
+    ///    `ColdStartProcessWatchSource`/`RecordingProcessWatchSourceMaker`'s
+    ///    already-accepted pattern for the process watch -- a new
+    ///    production seam this round does not add, flagged for the Lead's
+    ///    own decision rather than built unilaterally.
     @Test("the discovery watch's mandatory check observes an event that lands while its queue is suspended")
     func discoveryMandatoryCheckWaitsForConfirmedKernelRegistration() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
@@ -713,6 +743,11 @@ struct ColdStartObserverTests {
         let observeSessionCallSource = LocalFactSource(vocabulary: ScriptedSyscalls.observeSessionCallFactVocabulary())
         let observeSessionCallRecorder = try observeSessionCallSource.attach()
         syscalls.observeSessionCallFactSink = observeSessionCallSource.sink
+        // R2-4 item 4: the one real ordering guarantee available without a
+        // new production seam -- see the doc comment above.
+        let directoryOpenCallSource = LocalFactSource(vocabulary: ScriptedSyscalls.directoryOpenCallFactVocabulary())
+        let directoryOpenCallRecorder = try directoryOpenCallSource.attach()
+        syscalls.directoryOpenCallFactSink = directoryOpenCallSource.sink
         let observer = ColdStartObserver(syscalls: syscalls, targetQueue: testQueue)
 
         // Act
@@ -723,11 +758,13 @@ struct ColdStartObserverTests {
             attemptID: ColdRestoreAttemptID.generate()
         )
 
-        // The watch's own `resume()` already ran by program order below
-        // (this test suspended the queue before `observeColdStart` was
-        // ever called, and creates the file strictly before resuming it) —
-        // the file lands in the window this finding is about regardless of
-        // exactly when `beginDiscovery` itself gets scheduled.
+        // R2-4 item 4: waits for `beginDiscovery` to have actually entered
+        // and progressed through its own non-suspending body -- not merely
+        // for `async let` to have started a child task -- before creating
+        // the file. By the time this returns, `source.resume()` has
+        // unconditionally already run.
+        try await directoryOpenCallRecorder.expectNext(in: ScriptedSyscalls.directoryOpenScope, 1)
+
         FileManager.default.createFile(atPath: socketPath, contents: nil)
         testQueue.resume()
 

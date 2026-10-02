@@ -32,9 +32,13 @@ struct ColdStartObserverWatchSourceOwnershipTests {
     /// `cancel()`/handler installs, and lets a test fire a simulated
     /// exec/exit event directly -- ownership proven as a direct fact
     /// (who got cancelled, who stayed inert) with no kernel or queue
-    /// timing involved. `cancel()` clears the event handler, matching the
-    /// real guarantee the fix's `hasBegunHandoffWatch`/`isSettled` guards
-    /// rely on: a superseded source cannot advance the stage again.
+    /// timing involved. `cancel()` does NOT clear the event handler
+    /// (corrected, review round 2, Lead 2026-10-01): a real `DispatchSource`
+    /// keeps its registered handler closure even after `cancel()`, so a
+    /// `simulateEvent` after cancellation must still reach `ColdStartObserver`
+    /// for real, exercising its own `hasBegunHandoffWatch`/`isSettled` stage
+    /// guards -- a fake that cleared the handler would stay inert by its
+    /// own construction instead of proving that production guard.
     private final class FakeProcessWatchSource: ColdStartProcessWatchSource, @unchecked Sendable {
         let identifier: Int32
         private let lock = NSLock()
@@ -84,15 +88,21 @@ struct ColdStartObserverWatchSourceOwnershipTests {
             }
             cancelCallCount += 1
             let handler = cancelHandler
-            eventHandler = nil
             lock.unlock()
             handler?()
         }
 
-        /// Test-controlled: simulate a real exec/exit event. A no-op once
-        /// this source has been cancelled, since `cancel()` already
-        /// cleared the event handler -- proving a superseded source stays
-        /// inert without relying on any production guard to have run.
+        /// R2-4 item 5 / R2-1 (review round 2, Lead 2026-10-01): `cancel()`
+        /// no longer clears `eventHandler`, and this keeps dispatching to
+        /// whatever handler was captured, cancelled or not. A real
+        /// `DispatchSource` retains its registered handler closure even
+        /// after `cancel()` is called -- cancellation is asynchronous
+        /// (A4), so a callback already queued on a cancelled/superseded
+        /// source can still run. Clearing the handler here would make this
+        /// a no-op by construction, proving only this fake's own
+        /// bookkeeping; dispatching for real is what lets a test prove
+        /// production's own stage guard (`hasBegunHandoffWatch`/`isSettled`)
+        /// ignores that late callback.
         func simulateEvent(exitFired: Bool) {
             lock.lock()
             let handler = eventHandler
@@ -146,6 +156,21 @@ struct ColdStartObserverWatchSourceOwnershipTests {
         var buffer = withUnsafeBytes(of: Int32(0)) { Array($0) }
         buffer.append(contentsOf: Array(execPath.utf8))
         buffer.append(0)
+        return buffer
+    }
+
+    /// Same `KERN_PROCARGS2` shape, carrying `argv` -- used where a test
+    /// needs the token genuinely present (`tokenStillPresent`), not just an
+    /// empty argv that can only ever read as absent. Duplicated from
+    /// `ColdStartObserverTests`'s own private helper of the same name.
+    private func makeArgumentVectorBuffer(execPath: String = "/bin/example", argv: [String]) -> [UInt8] {
+        var buffer = withUnsafeBytes(of: Int32(argv.count)) { Array($0) }
+        buffer.append(contentsOf: Array(execPath.utf8))
+        buffer.append(0)
+        for argument in argv {
+            buffer.append(contentsOf: Array(argument.utf8))
+            buffer.append(0)
+        }
         return buffer
     }
 
@@ -239,6 +264,137 @@ struct ColdStartObserverWatchSourceOwnershipTests {
         let callCountBeforeSimulatedEvent = syscalls.observeSessionCallCount
         setsidSource.simulateEvent(exitFired: true)
         #expect(syscalls.observeSessionCallCount == callCountBeforeSimulatedEvent)
+    }
+
+    /// R2-1 (review round 2, Lead 2026-10-01): an independent connect (e.g.
+    /// a concurrent directory event) that already found `.pendingSetsid`
+    /// and registered its own setsid watch before discovery's own normal
+    /// flow even starts, modeled as a direct `beginSetsidWatch` call
+    /// (package-visible for exactly this reason, matching
+    /// `beginSetsidWatchInstallsNoSourceAfterSettlement` above), followed
+    /// by discovery's own real flow independently reaching `.pendingSetsid`
+    /// too and carrying the attempt all the way to a real handoff and
+    /// settlement.
+    ///
+    /// Proves the two things the prior sibling test could not: (1)
+    /// discovery's own setsid watch cancels the pre-emptive one instead of
+    /// silently dropping its reference (the leak this residual closes --
+    /// "every created source is either current or cancelled"); (2) once
+    /// this attempt has handed off and settled for real, a callback queued
+    /// on that pre-emptive, long-superseded source and invoked only then
+    /// is still ignored.
+    ///
+    /// A single, directly awaited `observeColdStart` call is the only
+    /// synchronization this test relies on: its continuation resumes only
+    /// once `settle()` has actually run, so by the time it returns, every
+    /// source's final cancellation state is a settled fact, not a guess
+    /// about how far an unstructured `Task` got (the same class of gap
+    /// F1/A2 fixed in production discovery). Driving the stale callback
+    /// through a second, competing in-flight call was considered and
+    /// rejected: nothing here can prove which of two *concurrently queued*
+    /// actor jobs the runtime would service first without assuming an
+    /// ordering Swift's concurrency model does not document as a
+    /// guarantee -- exactly the kind of timing assumption this suite's own
+    /// technique exists to avoid.
+    ///
+    /// Scope honestly stated: at the point this test fires the stale
+    /// callback, `isSettled` is already true, so `settle()`'s own
+    /// pre-existing guard alone would already have ignored it even without
+    /// `settleFromSetsidWatch`'s added `hasBegunHandoffWatch` check. That
+    /// narrower real-world window -- a stale callback arriving after
+    /// handoff begins but before it settles, which only the new guard
+    /// covers -- is not isolated here; doing so soundly needs either a new
+    /// fact the production fix does not otherwise require, or an
+    /// unproven assumption about which of two concurrently queued actor
+    /// jobs runs first. This test still proves the ownership/leak half of
+    /// R2-1 rigorously, and proves the queued-callback half is ignored in
+    /// the one scenario the review's own proof describes in order
+    /// ("hand off and settle", then "invoke... after handoff").
+    @Test(
+        "repeated pendingSetsid discovery keeps exactly one current setsid source, and a callback queued on a superseded one stays inert after real handoff and settlement"
+    )
+    func repeatedPendingSetsidKeepsOneCurrentSourceAndSupersededOneStaysInertAfterSettlement() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-r2-1-repeated-setsid-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let recordingMaker = RecordingProcessWatchSourceMaker()
+        let syscalls = ColdStartObserverTests.ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let selfIncarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: selfPID))
+        let identity = ZmxSessionIdentity(
+            version: 1,
+            bootID: "test-boot-id",
+            daemon: selfIncarnation,
+            terminalLeader: selfIncarnation,
+            processGroupID: selfIncarnation.pid,
+            sessionCreatedAt: 0
+        )
+        let attemptID = ColdRestoreAttemptID.generate()
+        // Call 1: the pre-emptive direct beginSetsidWatch below, whose own
+        // fake-source registration fires synchronously. Call 2: discovery's
+        // own mandatory check, once its real directory watch registers --
+        // both must still read .pendingSetsid, so neither commits to
+        // handoff on its own. Call 3: discovery's own setsid source's own
+        // registration observes the real identity, committing to handoff.
+        syscalls.observeSessionResults = [
+            .pendingSetsid(terminalPID: 4242),
+            .pendingSetsid(terminalPID: 4242),
+            .identity(identity),
+        ]
+        // The handoff watch's own mandatory check finds the token already
+        // absent -- the simplest path to a real, immediate .handedOff,
+        // since this test only needs settlement to have genuinely
+        // happened, not to hold it open.
+        syscalls.processArgumentsResult = .success(makeEmptyArgumentVectorBuffer())
+        let observer = ColdStartObserver(syscalls: syscalls, processWatchSourceMaker: recordingMaker.maker)
+
+        // Act 1: the pre-emptive, independent setsid watch.
+        await observer.beginSetsidWatch(
+            terminalPID: 4242, socketPath: socketPath, bootID: "test-boot-id", attemptID: attemptID)
+        let preemptiveSetsidSource = try #require(recordingMaker.createdSources.first)
+        #expect(preemptiveSetsidSource.cancelCallCount == 0, "the pre-emptive source must still be active")
+
+        // Act 2: discovery's own real flow -- independently reaches
+        // .pendingSetsid too (cancelling the pre-emptive source instead of
+        // leaking it), then its own setsid source observes the identity
+        // and the attempt hands off and settles for real. Awaited directly:
+        // by the time this returns, settlement has actually happened.
+        let outcome = await observer.observeColdStart(
+            zmxDirectory: temporaryDirectory, socketPath: socketPath, bootID: "test-boot-id", attemptID: attemptID)
+        #expect(outcome == .handedOff)
+
+        // Assert ownership: every source created is either current (none
+        // are, now that settlement tore down the last one too) or
+        // cancelled -- the pre-emptive source cancelled when discovery's
+        // own setsid source was created, that one cancelled when handoff
+        // began, and the handoff source itself cancelled by settlement's
+        // own teardown. Every owned source cancelled exactly once.
+        let createdSources = recordingMaker.createdSources
+        #expect(createdSources.count == 3)
+        #expect(preemptiveSetsidSource.cancelCallCount == 1, "the pre-emptive source must be cancelled, not leaked")
+        let discoverySetsidSource = createdSources[1]
+        #expect(discoverySetsidSource.cancelCallCount == 1)
+        let handoffSource = createdSources[2]
+        #expect(handoffSource.cancelCallCount == 1)
+
+        // Act 3: the callback queued on the pre-emptive, long-superseded
+        // source finally runs, well after this attempt has fully settled.
+        // The existing fake keeps this handler through cancel() (corrected
+        // above) specifically so this reaches ColdStartObserver's own
+        // settleFromSetsidWatch for real, rather than staying inert by the
+        // fake's own, unrelated construction.
+        preemptiveSetsidSource.simulateEvent(exitFired: true)
+
+        // Assert: ignored. No new source, and the already-settled handoff
+        // source stays cancelled exactly once -- not torn down a second
+        // time by this stale callback.
+        #expect(recordingMaker.createdSources.count == 3)
+        #expect(handoffSource.cancelCallCount == 1)
     }
 
     /// A3: proves settlement cancels an in-flight setsid watch's own
