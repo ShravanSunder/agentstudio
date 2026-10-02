@@ -85,11 +85,22 @@ jobs:
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          apt-get install -y --no-install-recommends gh jq perl curl lsof
+          apt-get install -y --no-install-recommends gh jq perl curl lsof python3
           perl -MJSON::PP -MTime::HiRes -e 1
 
       - name: Trust checkout for Git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check changed documentation links
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p tmp/ci-docs
+          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git diff --name-only -z --no-renames "$merge_base" "$HEAD_SHA" -- > tmp/ci-docs/changed-paths
+          python3 scripts/check-changed-doc-links.py --changed-files tmp/ci-docs/changed-paths
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -159,10 +170,6 @@ jobs:
           python3 scripts/ci-docs-changes.py classify \
             --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA" \
             --receipt tmp/ci-docs/changes.json --github-output "$GITHUB_OUTPUT"
-
-      - name: Check changed documentation links
-        if: steps.classify.outputs.docs_only == 'true'
-        run: python3 scripts/check-changed-doc-links.py --receipt tmp/ci-docs/changes.json
 
   marketing-site-validation:
     name: Marketing site validation

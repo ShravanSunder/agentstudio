@@ -16,8 +16,15 @@ extension CITopologyWorkflowTests {
         #expect(changes.contains("github.event.pull_request.base.sha"))
         #expect(changes.contains("github.event.pull_request.head.sha"))
         #expect(changes.contains("python3 scripts/ci-docs-changes.py classify"))
-        #expect(changes.contains("if: steps.classify.outputs.docs_only == 'true'"))
-        #expect(changes.contains("python3 scripts/check-changed-doc-links.py"))
+        #expect(!changes.contains("check-changed-doc-links.py"))
+        let quality = try docsOnlyJob("code-quality", in: workflow)
+        let linkStep = try docsOnlyLinkStep(in: quality)
+        #expect(linkStep.contains("if: github.event_name == 'pull_request'"))
+        #expect(linkStep.contains("git merge-base"))
+        #expect(linkStep.contains("git diff --name-only -z --no-renames"))
+        #expect(linkStep.contains("python3 scripts/check-changed-doc-links.py --changed-files"))
+        #expect(!linkStep.contains("needs.changes"))
+        #expect(!linkStep.contains("docs_only"))
         #expect(!workflow.contains("paths-ignore:"))
         for name in ["swift-test-suite", "bridge-web", "marketing-site-validation"] {
             let job = try docsOnlyJob(name, in: workflow)
@@ -30,6 +37,54 @@ extension CITopologyWorkflowTests {
             try docsOnlyJob("code-quality", in: workflow).components(separatedBy: "    steps:").first ?? ""
         #expect(!qualityHeader.contains("needs:"))
         #expect(!qualityHeader.contains("if:"))
+    }
+
+    @Test("required Code quality rejects a broken anchor in a mixed PR and skips cleanly without changed docs")
+    func requiredQualityChecksEveryPRDocChange() async throws {
+        let fixture = try DocsOnlyGitFixture()
+        defer { fixture.remove() }
+        try fixture.write("docs/target.md", "# Good")
+        try fixture.write("docs/guide.md", "[Good](target.md#good)")
+        try fixture.write("Sources/Example.swift", "let value = 1")
+        let base = try await fixture.commit("base")
+        try fixture.write("Sources/Example.swift", "let value = 2")
+        let codeHead = try await fixture.commit("code only")
+        let noDocs = try await fixture.runQualityLinkStep(base: base, head: codeHead)
+        #expect(noDocs.terminationStatus == 0)
+        #expect(String(data: noDocs.standardOutput, encoding: .utf8)?.contains("no changed Markdown documents") == true)
+        try fixture.write("docs/guide.md", "[Broken](target.md#absent)")
+        let mixedHead = try await fixture.commit("code plus broken docs")
+        let broken = try await fixture.runQualityLinkStep(base: base, head: mixedHead)
+        #expect(broken.terminationStatus == 1)
+        #expect(String(data: broken.standardError, encoding: .utf8)?.contains("missing anchor #absent") == true)
+        try fixture.write("docs/guide.md", "[Fixed](target.md#good)")
+        let fixedHead = try await fixture.commit("fixed docs")
+        #expect(try await fixture.runQualityLinkStep(base: base, head: fixedHead).terminationStatus == 0)
+    }
+
+    @Test("required link check exempts only the existing architecture-lint doc fixture tree")
+    func requiredQualityKeepsNegativeDocFixturesValid() async throws {
+        let lintScript = try String(contentsOfFile: "scripts/lint-swift.sh", encoding: .utf8)
+        let linkChecker = try String(contentsOfFile: "scripts/check-changed-doc-links.py", encoding: .utf8)
+        let fixtureRoot = try String(contentsOfFile: "scripts/architecture-doc-fixture-root.txt", encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(lintScript.contains("scripts/architecture-doc-fixture-root.txt"))
+        #expect(linkChecker.contains("architecture-doc-fixture-root.txt"))
+        #expect(!lintScript.contains(fixtureRoot))
+        #expect(!linkChecker.contains(fixtureRoot))
+        let fixture = try DocsOnlyGitFixture()
+        defer { fixture.remove() }
+        let negativeFixture =
+            "Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/AGENTS.md"
+        try fixture.write(negativeFixture, "[Expected failure](missing.md#absent)")
+        try fixture.write("docs/guide.md", "# Guide")
+        let base = try await fixture.commit("base")
+        try fixture.write(negativeFixture, "[Expected new failure](missing.md#other)")
+        let fixtureHead = try await fixture.commit("fixture changed")
+        #expect(try await fixture.runQualityLinkStep(base: base, head: fixtureHead).terminationStatus == 0)
+        try fixture.write("docs/guide.md", "[Unexpected failure](missing.md#absent)")
+        let realDocHead = try await fixture.commit("real doc broken")
+        #expect(try await fixture.runQualityLinkStep(base: base, head: realDocHead).terminationStatus == 1)
     }
 
     @Test("structural scanner finds code-pinned documents and agent documents")
@@ -207,6 +262,13 @@ private func docsOnlyJob(_ name: String, in workflow: String) throws -> String {
     return lines[start..<end].joined(separator: "\n")
 }
 
+private func docsOnlyLinkStep(in job: String) throws -> String {
+    let start = try #require(job.range(of: "      - name: Check changed documentation links\n"))
+    let rest = job[start.lowerBound...]
+    let end = rest.range(of: "\n      - ")?.lowerBound ?? rest.endIndex
+    return String(rest[..<end])
+}
+
 private struct DocsOnlyGitFixture {
     let root: URL
     let classifier: URL
@@ -265,12 +327,40 @@ private struct DocsOnlyGitFixture {
         return try #require(record["docs_only"] as? Bool)
     }
 
+    func runQualityLinkStep(base: String, head: String) async throws -> ExitedProcessOutput {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let step = try docsOnlyLinkStep(in: docsOnlyJob("code-quality", in: workflow))
+        let run = try #require(step.range(of: "        run: |\n"))
+        let script = step[run.upperBound...].split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0.dropFirst(10)) }.joined(separator: "\n")
+        let fixtureChecker = root.appendingPathComponent("scripts/check-changed-doc-links.py")
+        if !FileManager.default.fileExists(atPath: fixtureChecker.path) {
+            try FileManager.default.createDirectory(
+                at: fixtureChecker.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: checker, to: fixtureChecker)
+            try FileManager.default.copyItem(
+                at: checker.deletingLastPathComponent().appendingPathComponent("architecture-doc-fixture-root.txt"),
+                to: fixtureChecker.deletingLastPathComponent().appendingPathComponent(
+                    "architecture-doc-fixture-root.txt"))
+        }
+        let environment = ProcessInfo.processInfo.environment.merging(["BASE_SHA": base, "HEAD_SHA": head]) { _, new in
+            new
+        }
+        return try await runProcessToExit(
+            executableURL: URL(fileURLWithPath: "/bin/bash"), arguments: ["-euc", script], currentDirectoryURL: root,
+            environment: environment)
+    }
+
     func checkLinks() async throws -> ExitedProcessOutput {
+        let record = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any])
+        let changed = try #require(record["changed_files"] as? [String])
+        let paths = root.appendingPathComponent(".git/changed-paths")
+        try Data((changed.joined(separator: "\0") + "\0").utf8).write(to: paths)
         let executable = try await TestToolResolver.resolved().python3
         return try await runProcessToExit(
             executableURL: executable,
             arguments: [
-                checker.path, "--root", root.path, "--receipt", receipt.path,
+                checker.path, "--root", root.path, "--changed-files", paths.path,
             ])
     }
 }

@@ -3,7 +3,7 @@
 
 import argparse
 import html
-import json
+import os
 import pathlib
 import re
 import sys
@@ -162,28 +162,57 @@ def check_local_links(root: pathlib.Path, changed: t.List[str]) -> t.List[str]:
 
 class LinkArguments(argparse.Namespace):
     root: pathlib.Path
-    receipt: pathlib.Path
+    changed_files: pathlib.Path
 
     def __init__(self) -> None:
         super().__init__()
         self.root = pathlib.Path.cwd()
-        self.receipt = pathlib.Path()
+        self.changed_files = pathlib.Path()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path.cwd())
-    parser.add_argument("--receipt", type=pathlib.Path, required=True)
+    parser.add_argument("--changed-files", type=pathlib.Path, required=True)
     args = parser.parse_args(namespace=LinkArguments())
     try:
-        receipt: object = json.loads(args.receipt.read_text(encoding="utf-8"))
-        if not isinstance(receipt, dict):
-            raise ValueError("classification receipt must be an object")
-        changed: object = receipt.get("changed_files")
-        if not isinstance(changed, list) or not all(
-            isinstance(path, str) for path in changed
+        changed = [
+            os.fsdecode(path)
+            for path in args.changed_files.read_bytes().split(b"\0")
+            if path
+        ]
+        fixture_root = pathlib.PurePosixPath(
+            pathlib.Path(__file__)
+            .with_name("architecture-doc-fixture-root.txt")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        if (
+            not fixture_root.parts
+            or fixture_root.is_absolute()
+            or ".." in fixture_root.parts
         ):
-            raise ValueError("classification receipt must contain changed_files")
+            raise ValueError(
+                "architecture doc fixture root must be a nonempty relative path"
+            )
+        # These documents intentionally contain broken links for lint-rule tests.
+        # Classification still sees them; only this document gate exempts them.
+        changed = [
+            path
+            for path in changed
+            if fixture_root not in pathlib.PurePosixPath(path).parents
+        ]
+        markdown = [
+            path
+            for path in changed
+            if (args.root / path).suffix.lower() == ".md"
+            and (args.root / path).is_file()
+        ]
+        if not markdown:
+            print(
+                "changed-doc link check: no changed Markdown documents; nothing to check"
+            )
+            return 0
         problems = check_local_links(args.root.resolve(), changed)
         if problems:
             print("\n".join(problems), file=sys.stderr)
@@ -192,7 +221,7 @@ def main() -> int:
             f"changed-doc link check: {len(changed)} changed paths; all local links and Markdown anchors resolve"
         )
         return 0
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, ValueError) as error:
         print(f"changed-doc link check failed: {error}", file=sys.stderr)
         return 1
 
