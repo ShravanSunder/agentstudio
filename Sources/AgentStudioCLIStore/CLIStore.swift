@@ -108,7 +108,7 @@ package final class CLIStore: Sendable {
                         throw CLIStoreFailure.unavailable
                     }
                 }
-                try database.execute(sql: "PRAGMA synchronous = NORMAL")
+                try database.execute(sql: "PRAGMA synchronous = FULL")
             }
             if needsMigration {
                 try migrator.migrate(databaseQueue)
@@ -135,7 +135,11 @@ package final class CLIStore: Sendable {
             let databaseQueue = try DatabaseQueue(
                 path: url.path, configuration: makeConfiguration(readonly: true))
             let identity = try databaseQueue.read { database in
-                try readIdentity(database, expectedChannel: expectedChannel)
+                let applied = try CLIStoreMigrator.makeMigrator(channel: expectedChannel).appliedIdentifiers(database)
+                guard applied.isSubset(of: CLIStoreMigrator.knownMigrations) else {
+                    throw CLIStoreFailure.superseded
+                }
+                return try readIdentity(database, expectedChannel: expectedChannel)
             }
             return .success(
                 CLIStore(
