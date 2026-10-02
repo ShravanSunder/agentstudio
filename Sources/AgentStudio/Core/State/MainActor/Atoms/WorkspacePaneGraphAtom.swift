@@ -848,6 +848,7 @@ package final class WorkspacePaneGraphAtom {
         let previousPaneIDs = Set(previousPaneStates.keys)
         let nextPaneIDs = Set(nextPaneStates.keys)
         let removedPaneIDs = previousPaneIDs.subtracting(nextPaneIDs)
+        var membershipChanges: [PaneContextMembershipEntry] = []
 
         for removedPaneID in removedPaneIDs {
             paneStateMap.removeValue(for: removedPaneID, mutation: mutation)
@@ -858,9 +859,14 @@ package final class WorkspacePaneGraphAtom {
             lastAppliedAssociationRevisionByPaneID.removeValue(forKey: removedPaneID)
         }
         for (paneID, nextPaneState) in nextPaneStates where previousPaneStates[paneID] != nextPaneState {
+            let facts = PaneStructuralFacts(state: nextPaneState)
+            membershipChanges.append(
+                PaneContextMembershipEntry(
+                    paneId: PaneId(existingUUID: paneID), placement: facts.placement,
+                    ownedDrawerChildIds: facts.ownedDrawerPaneIDs.map { PaneId(existingUUID: $0) }))
             paneStateMap.setValue(nextPaneState, for: paneID, mutation: mutation)
             paneStructuralFactsMap.setValue(
-                PaneStructuralFacts(state: nextPaneState),
+                facts,
                 for: paneID,
                 mutation: mutation
             )
@@ -875,6 +881,8 @@ package final class WorkspacePaneGraphAtom {
                 mutation: mutation
             )
         }
+        paneContextMembershipDirectory.commit(
+            changed: membershipChanges, removed: removedPaneIDs.map { PaneId(existingUUID: $0) })
 
         let nextParentPaneIDByDrawerID = Dictionary(
             uniqueKeysWithValues: nextPaneStates.values.compactMap { paneState in

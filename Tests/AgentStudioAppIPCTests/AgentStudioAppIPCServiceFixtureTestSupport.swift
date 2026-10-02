@@ -116,10 +116,11 @@ struct LiveServerFixture: Sendable {
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         sessionsPort: any AppIPCSessionsPort = RecordingSessionsPort(),
+        paneContextPort: any AppIPCPaneContextPort = UnavailableAppIPCPaneContextPort(),
         commandComposition: IPCCommandMethodComposition? = nil,
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
-        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,
+        canonicalPaneMembership: (@Sendable (UUID, UUID) -> Bool)? = nil,
         ownPaneScopes: [AppIPCOwnPaneScope] = [],
         additionalRegistrations: [AnyAppIPCMethodRegistration] = [],
         eventBroker: IPCEventBroker = IPCEventBroker(),
@@ -156,7 +157,8 @@ struct LiveServerFixture: Sendable {
                 // Unless a test names scopes, every bound pane is a main-layout
                 // terminal with an empty drawer, so its own pane is itself.
                 ownPaneScopePort: StaticOwnPaneScopePort(scopes: ownPaneScopes),
-                agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
+                agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry(),
+                paneContextPort: paneContextPort
             )
             let catalog = try makeLiveServerBuiltInCatalog(
                 runtimeId: runtimeId,

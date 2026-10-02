@@ -55,7 +55,10 @@ extension PaneContextService {
                 return PaneContextSendCommit(result: .created(request.messageId), openAsks: update)
             }
             if let update = commit.openAsks { await openAskSink(update) }
-            if case .created = commit.result { await refreshDeadline() }
+            if case .created = commit.result {
+                await refreshDeadline()
+                await publishAffectedSources([request.paneId])
+            }
             return commit.result
         } catch { return .unavailable(storageFailure(error, writing: true)) }
     }
@@ -71,6 +74,7 @@ extension PaneContextService {
             }
             await acceptSettlement(commit, key: PaneContextMessageKey(paneId: paneId, messageId: messageId))
             await refreshDeadline()
+            await publishAffectedSources([paneId])
             return commit.result
         } catch { return .unavailable(storageFailure(error, writing: true)) }
     }
@@ -125,6 +129,7 @@ extension PaneContextService {
                 await acceptSettlement(settlement, key: PaneContextMessageKey(paneId: paneId, messageId: messageId))
                 await refreshDeadline()
             }
+            if commit.result == .done { await publishAffectedSources([paneId]) }
             return commit.result
         } catch { return .unavailable(storageFailure(error, writing: true)) }
     }
@@ -133,7 +138,7 @@ extension PaneContextService {
         do {
             try await ensureOpen()
             let now = wallNow
-            return try await sqliteAccess.write { database in
+            let result: MarkReadResult = try await sqliteAccess.write { database in
                 guard let message = try PaneContextStorage.message(database, paneId: paneId, messageId: messageId),
                     case .notice(let state) = message.detail.shape
                 else { return .notFound }
@@ -142,6 +147,8 @@ extension PaneContextService {
                     database, message: message, state: "read", change: nil, now: now())
                 return .done
             }
+            if result == .done { await publishAffectedSources([paneId]) }
+            return result
         } catch { return .unavailable(storageFailure(error, writing: true)) }
     }
 
@@ -188,6 +195,7 @@ extension PaneContextService {
                 await acceptSettlement(settlement, key: PaneContextMessageKey(paneId: paneId, messageId: messageId))
             }
             await refreshDeadline()
+            if commit.result == .withdrawn { await publishAffectedSources([paneId]) }
             return commit.result
         } catch { return .unavailable(storageFailure(error, writing: true)) }
     }

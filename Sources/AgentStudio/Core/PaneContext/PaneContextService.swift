@@ -33,7 +33,7 @@ package actor PaneContextService: PaneContextDetailReading, PaneContextPersonAct
     let openAskSink: @Sendable (PaneContextOpenAskUpdate) async -> Void
     let agentLineSink: @Sendable (AgentLineWork?, UUID) async -> Void
     let actionRunner: @Sendable (MessageAction) async -> MessageActionResult
-    let presentationLane: PaneContextPublicationLane?
+    nonisolated let presentationLane: PaneContextPublicationLane?
 
     nonisolated let retirementMailbox = PaneContextRetirementMailboxBox()
     nonisolated let retirementWake: AsyncStream<Void>.Continuation
@@ -49,6 +49,8 @@ package actor PaneContextService: PaneContextDetailReading, PaneContextPersonAct
     var deadlineRefreshGeneration: UInt64 = 0
     var waiters: [PaneContextMessageKey: [UUID: AsyncStream<AskOutcome>.Continuation]] = [:]
     var detailVersions: [PaneId: (version: PaneContextDetailVersion, revision: PaneContextRevision)] = [:]
+    var membershipDrain: Task<Void, Never>?
+    var membershipReconcile: Task<Void, Never>?
 
     package init(
         sqliteAccess: any PaneContextSQLiteAccess,
@@ -136,6 +138,7 @@ package actor PaneContextService: PaneContextDetailReading, PaneContextPersonAct
         for (key, commit) in startup.settlements { await acceptSettlement(commit, key: key) }
         try await drainRetirements()
         await refreshDeadline()
+        await startPresentation()
     }
 
     func isPendingRetirement(_ paneId: PaneId) -> Bool {

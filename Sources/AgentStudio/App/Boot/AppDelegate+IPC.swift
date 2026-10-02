@@ -81,11 +81,12 @@ extension AppDelegate {
         )
         let repository = IPCContinuityRepository(datastore: datastore)
         let resolver = IPCContinuityCredentialResolver(repository: repository)
+        let directory = atomStore.core.workspacePaneGraph.paneContextMembershipDirectory
         let registry = AgentStudioIPCPrincipalRegistry(
             runtimeId: runtimeID,
             credentialResolver: resolver,
-            canonicalPaneMembership: { [store] paneID, workspaceID in
-                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
+            canonicalPaneMembership: { paneID, workspaceID in
+                directory.contains(paneID: paneID, inWorkspace: workspaceID)
             }
         )
         appIPCRuntimeID = runtimeID
@@ -100,8 +101,8 @@ extension AppDelegate {
             spoolDirectory: paths.spoolDirectory,
             cliExecutableURL: Bundle.main.bundleURL
                 .appending(path: "Contents/Helpers/agentstudio"),
-            canonicalPaneMembership: { [store] paneID, workspaceID in
-                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
+            canonicalPaneMembership: { paneID, workspaceID in
+                directory.contains(paneID: paneID, inWorkspace: workspaceID)
             }
         )
     }

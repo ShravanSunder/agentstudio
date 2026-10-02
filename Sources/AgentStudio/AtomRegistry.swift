@@ -23,6 +23,7 @@ final class AtomRegistry {
     let bridgePaneAttendance: BridgePaneAttendanceAtom
     let sessionStatus: SessionStatusAtom
     let sessionsPaneViewedMailbox: SessionsPaneViewedMailbox
+    var paneContextPresentation: PaneContextPresentationAtom { core.paneContextPresentation }
 
     init(
         core: CoreAtoms = .init(),

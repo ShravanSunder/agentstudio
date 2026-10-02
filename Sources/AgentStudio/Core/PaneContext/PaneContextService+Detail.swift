@@ -12,6 +12,7 @@ struct PaneContextDetailSnapshot: Sendable {
 
 struct PaneContextDetailVersion: Sendable, Equatable {
     let sources: [PaneId]
+    let membershipRevision: UInt64?
     let sourceRevisions: [PaneContextRevision]
     let session: SessionSummary?
 }
@@ -24,9 +25,10 @@ extension PaneContextService {
     package func readDetail(_ request: PaneContextReadRequest, maximumDetailBytes: Int) async -> PaneContextReadResult {
         do {
             try await ensureOpen()
-            guard let sources = membership.sources(for: request.paneId), !isPendingRetirement(request.paneId) else {
+            guard let view = captureMembershipView(paneId: request.paneId), !isPendingRetirement(request.paneId) else {
                 return .paneGone
             }
+            let sources = view.sources
             guard sourceIsInView(page: request.page, sources: sources) else { return .sourceNotInView }
             let session = try await sessionSummary(request.paneId)
             let now = wallNow
@@ -35,7 +37,8 @@ extension PaneContextService {
             }
             guard let snapshot, !isPendingRetirement(request.paneId) else { return .paneGone }
             let version = PaneContextDetailVersion(
-                sources: sources, sourceRevisions: snapshot.sourceRevisions, session: session)
+                sources: sources, membershipRevision: view.revision,
+                sourceRevisions: snapshot.sourceRevisions, session: session)
             let revision = detailRevision(for: request.paneId, version: version)
             var assembly = PaneContextDetailPageAssembly(
                 request: request, sources: sources, snapshot: snapshot, session: session,
@@ -63,7 +66,7 @@ private func sourceIsInView(page: PaneContextReadPage, sources: [PaneId]) -> Boo
     }
 }
 
-private func capturePaneContextDetail(
+func capturePaneContextDetail(
     _ database: Database, paneId: PaneId, sources: [PaneId], now: @Sendable () -> Date
 ) throws -> PaneContextDetailSnapshot? {
     guard try !PaneContextStorage.isRetired(database, paneId: paneId) else { return nil }

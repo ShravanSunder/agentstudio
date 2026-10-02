@@ -5,13 +5,13 @@ import Testing
 
 @Suite("IPC built-in typed method catalog")
 struct IPCBuiltInMethodCatalogTests {
-    @Test("catalog exposes exactly 47 unique static methods in name order")
+    @Test("catalog exposes exactly 55 unique static methods in name order")
     func catalogHasExactStaticSurface() throws {
         let catalog = try makeCatalog(waitMaximum: 9)
         let names = catalog.erasedDescriptors.map(\.metadata.name)
 
         #expect(names == expectedStaticMethodNames)
-        #expect(Set(names).count == 47)
+        #expect(Set(names).count == 55)
         #expect(names == names.sorted())
     }
 
@@ -70,6 +70,35 @@ struct IPCBuiltInMethodCatalogTests {
                 .filter { $0.metadata.name.hasPrefix("bridge.") || $0.metadata.name.hasPrefix("sidebar.") }
                 .allSatisfy { $0.metadata.agentEligibility == .notYetAllowed }
         )
+    }
+
+    @Test("The eight pane-context methods declare their exact read and write privileges and service owner")
+    func paneContextMethodsDeclareExactOwnership() throws {
+        let catalog = try makeCatalog(waitMaximum: 9)
+        let descriptors = catalog.erasedDescriptors.map(\.metadata)
+            .filter { $0.executionOwner == .paneContextService }
+        let expectedPrivileges: [String: [IPCPrivilegeClass]] = [
+            "pane.context.get": [.paneContextRead],
+            "pane.line.set": [.paneContextWrite],
+            "pane.message.ask": [.paneContextWrite],
+            "pane.message.changes": [.paneContextWrite],
+            "pane.message.send": [.paneContextWrite],
+            "pane.message.withdraw": [.paneContextWrite],
+            "pane.title.set": [.paneContextWrite],
+            "pane.writer.claimEpoch": [.paneContextWrite],
+        ]
+        let actualPrivileges = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.name, $0.requiredPrivileges) })
+        #expect(actualPrivileges == expectedPrivileges)
+        for descriptor in descriptors {
+            #expect(descriptor.agentEligibility == .ownPane)
+            #expect(descriptor.exposure == .allChannels)
+            #expect(descriptor.allowedTargetKinds == [.pane])
+            #expect(descriptor.dataScope == .paneContext)
+            #expect(descriptor.principalAvailability == .authenticated)
+            let mutates = descriptor.name != "pane.context.get"
+            #expect(descriptor.isMutating == mutates)
+            #expect(descriptor.correlationPolicy == (mutates ? .required : .notAccepted))
+        }
     }
 
     @Test("discovery reports eligibility and omits it for established v2 methods")
@@ -287,9 +316,17 @@ struct IPCBuiltInMethodCatalogTests {
             "events.subscribe",
             "events.unsubscribe",
             "pane.close",
+            "pane.context.get",
             "pane.current",
+            "pane.line.set",
             "pane.list",
+            "pane.message.ask",
+            "pane.message.changes",
+            "pane.message.send",
+            "pane.message.withdraw",
             "pane.snapshot",
+            "pane.title.set",
+            "pane.writer.claimEpoch",
             "session.event",
             "session.message",
             "session.query",
@@ -313,6 +350,8 @@ struct IPCBuiltInMethodCatalogTests {
     private var expectedAgentEligibility: [String: IPCAgentEligibility?] {
         let ownPane: [String] = [
             "drawer.addPane", "pane.close", "pane.snapshot",
+            "pane.context.get", "pane.line.set", "pane.message.ask", "pane.message.changes",
+            "pane.message.send", "pane.message.withdraw", "pane.title.set", "pane.writer.claimEpoch",
             "terminal.send", "terminal.snapshot", "terminal.status", "terminal.wait",
         ]
         let anyTarget: [String] = [
@@ -351,7 +390,14 @@ struct IPCBuiltInMethodCatalogTests {
             "events.unsubscribe",
             "pane.close",
             "pane.focus",
+            "pane.line.set",
+            "pane.message.ask",
+            "pane.message.changes",
+            "pane.message.send",
+            "pane.message.withdraw",
             "pane.split",
+            "pane.title.set",
+            "pane.writer.claimEpoch",
             "session.event",
             "session.message",
             "session.report",
@@ -386,11 +432,19 @@ struct IPCBuiltInMethodCatalogTests {
             "events.subscribe",
             "events.unsubscribe",
             "pane.close",
+            "pane.context.get",
             "pane.current",
             "pane.focus",
+            "pane.line.set",
             "pane.list",
+            "pane.message.ask",
+            "pane.message.changes",
+            "pane.message.send",
+            "pane.message.withdraw",
             "pane.snapshot",
             "pane.split",
+            "pane.title.set",
+            "pane.writer.claimEpoch",
             "session.event",
             "session.message",
             "session.query",

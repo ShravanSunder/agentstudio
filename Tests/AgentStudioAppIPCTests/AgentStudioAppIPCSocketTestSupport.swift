@@ -122,21 +122,23 @@ func connectWithoutBlockingCooperativePool(socketPath: String) async throws -> U
 func sendRequestWithoutBlockingCooperativePool(
     connection: UnixSocketConnection,
     request: JSONRPCClientRequest,
-    observeIO: TestSocketIOObserver? = nil
+    observeIO: TestSocketIOObserver? = nil,
+    maxFrameBytes: Int = 65_536
 ) async throws {
     try await withoutBlockingCooperativePool {
-        try sendRequest(connection: connection, request: request, observeIO: observeIO)
+        try sendRequest(connection: connection, request: request, observeIO: observeIO, maxFrameBytes: maxFrameBytes)
     }
 }
 
 func sendRequest(
     connection: UnixSocketConnection,
     request: JSONRPCClientRequest,
-    observeIO: TestSocketIOObserver? = nil
+    observeIO: TestSocketIOObserver? = nil,
+    maxFrameBytes: Int = 65_536
 ) throws {
     let frameData = try NDJSONFrameEncoder.encode(
         JSONRPCCodec.encodeRequest(request),
-        maxFrameBytes: 65_536
+        maxFrameBytes: maxFrameBytes
     )
     withUnsafeCurrentTask { observeIO?(.send, $0 != nil) }
     try connection.send(frameData)

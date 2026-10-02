@@ -6,5 +6,7 @@ package struct PaneDisplayTitleDerived {
         self.presentation = presentation
     }
 
-    package func title(for paneId: PaneId, fallbackTitle: String) -> String { fallbackTitle }
+    package func title(for paneId: PaneId, fallbackTitle: String) -> String {
+        presentation.value(for: paneId)?.agentTitle ?? fallbackTitle
+    }
 }

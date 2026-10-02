@@ -45,14 +45,18 @@ final class PaneContextServiceFixture: Sendable {
         }
     }
 
-    func makeService(sessionSummary: @escaping @Sendable (PaneId) async throws -> SessionSummary? = { _ in nil })
+    func makeService(
+        sessionSummary: @escaping @Sendable (PaneId) async throws -> SessionSummary? = { _ in nil },
+        presentationLane: PaneContextPublicationLane? = nil,
+        membership: (any PaneContextMembershipReading)? = nil
+    )
         -> PaneContextService
     {
         PaneContextService(
             sqliteAccess: sqliteAccess,
             clock: clock,
             wallNow: { [time] in time.now },
-            membership: membership,
+            membership: membership ?? self.membership,
             currentBindingGeneration: { paneId, database in
                 let value = try String.fetchOne(
                     database,
@@ -61,7 +65,8 @@ final class PaneContextServiceFixture: Sendable {
                 )
                 return value.flatMap(UUID.init(uuidString:))
             },
-            sessionSummary: sessionSummary
+            sessionSummary: sessionSummary,
+            presentationLane: presentationLane
         )
     }
 

@@ -14,6 +14,60 @@ import Testing
 @Suite("Sessions recorded provider trace integration")
 struct SessionsProviderTraceIntegrationTests {
     @Test(
+        "populated supplied and fallback resume hints survive repository reopen and occurrence replay",
+        arguments: [true, false])
+    func resumeHintPersistsAcrossReopenAndReplay(useSuppliedHint: Bool) async throws {
+        let fixture = try RecordedStatusDatabase()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let paneId = UUIDv7.generate()
+        let projected = try projectRecordedStatus(data: recordedStatusData("SessionStart"))
+        let event = projected.event
+        let suppliedHint = "claude --resume supplied-conversation --verbose"
+        let expectedHint = useSuppliedHint ? suppliedHint : "claude --resume \(event.conversationId)"
+        var providerFields = event.providerFields
+        providerFields.resumeHint = useSuppliedHint ? suppliedHint : nil
+        let start = IPCSessionEventParams(
+            handle: projected.handle, provider: projected.provider,
+            event: .init(
+                name: event.name, conversationId: event.conversationId, turnId: event.turnId,
+                requestId: event.requestId, toolId: event.toolId, subagentId: event.subagentId,
+                occurrenceId: event.occurrenceId, providerFields: providerFields),
+            correlationId: projected.correlationId)
+        let query = SessionsSnapshotQuery(paneId: paneId, page: .init(limit: 100, after: nil))
+        let initial = try await fixture.withIngestion { ingestion, adapter in
+            let result = try await adapter.recordProviderEvent(paneId: paneId, params: start, provenance: .matchingPane)
+            #expect(result.disposition == .admitted)
+            let snapshot = try await ingestion.snapshot(query)
+            let binding = try #require(snapshot.currentBinding)
+            #expect(binding.resumeHint == expectedHint)
+            return snapshot
+        }
+        try await fixture.withIngestion { ingestion, adapter in
+            let reopened = try await ingestion.snapshot(query)
+            #expect(reopened.currentBinding == initial.currentBinding)
+            #expect(try #require(reopened.currentBinding).resumeHint == expectedHint)
+            let replay = IPCSessionEventParams(
+                handle: start.handle, provider: start.provider, event: start.event, correlationId: UUIDv7.generate())
+            #expect(replay.correlationId != start.correlationId)
+            let result = try await adapter.recordProviderEvent(
+                paneId: paneId, params: replay, provenance: .matchingPane)
+            #expect(result.disposition == .admitted)
+            let afterReplay = try await ingestion.snapshot(query)
+            #expect(afterReplay.currentBinding == initial.currentBinding)
+            #expect(try #require(afterReplay.currentBinding).resumeHint == expectedHint)
+            // Correlation aliases advance the operation ledger, not the domain state.
+            #expect(afterReplay.state == initial.state)
+            #expect(afterReplay.stateOrigin == initial.stateOrigin)
+            #expect(afterReplay.messages == initial.messages)
+            #expect(afterReplay.currentAttention == initial.currentAttention)
+            #expect(afterReplay.staleAttention == initial.staleAttention)
+            #expect(afterReplay.results == initial.results)
+            #expect(Set(afterReplay.historicalOccurrenceIds) == Set(initial.historicalOccurrenceIds))
+            #expect(afterReplay.losses == initial.losses)
+        }
+    }
+
+    @Test(
         "discarded provider schema, answer and server metadata do not change canonical replay",
         arguments: ["Elicitation", "ElicitationResult"])
     func discardedElicitationMetadataReplays(fixtureName: String) async throws {

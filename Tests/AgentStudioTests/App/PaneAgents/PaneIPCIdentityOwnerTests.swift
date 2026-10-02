@@ -133,7 +133,7 @@ struct PaneIPCIdentityOwnerTests {
 
     private func makeIdentityOwner(
         principalRegistry: AgentStudioIPCPrincipalRegistry,
-        membership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool,
+        membership: @escaping @Sendable (UUID, UUID) -> Bool,
         randomBytes: @escaping @Sendable () throws -> Data,
         inheritedEnvironment: [String: String] = ["PATH": "/usr/bin:/bin"],
         fixture: PaneIPCIdentityOwnerFixture
@@ -151,7 +151,7 @@ struct PaneIPCIdentityOwnerTests {
 
     private func makeRegistry(
         durableResolver: any AgentStudioIPCCredentialResolving,
-        membership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool
+        membership: @escaping @Sendable (UUID, UUID) -> Bool
     ) -> AgentStudioIPCPrincipalRegistry {
         AgentStudioIPCPrincipalRegistry(
             runtimeId: UUIDv7.generate(),

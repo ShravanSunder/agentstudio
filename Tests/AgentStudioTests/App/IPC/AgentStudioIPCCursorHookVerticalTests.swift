@@ -86,8 +86,8 @@ struct AgentStudioIPCCursorHookVerticalTests {
         await harness.tearDown()
     }
 
-    @Test("A replayed tool-use hook is refused, not counted twice")
-    func replayedToolHookIsRefused() async throws {
+    @Test("A replayed tool-use hook returns its recorded outcome without being counted twice")
+    func replayedToolHookReturnsRecordedOutcome() async throws {
         // Arrange: the hook derives one occurrence identity per tool invocation
         // but mints a fresh correlation per process, so a Cursor retry of the
         // same hook arrives as the same occurrence under a new correlation.
@@ -98,26 +98,44 @@ struct AgentStudioIPCCursorHookVerticalTests {
             let paneId = harness.boundPaneId
             _ = try await send("sessionStart", paneId: paneId, harness: harness)
             _ = try await send("beforeSubmitPrompt", paneId: paneId, harness: harness)
-            let first = try await send("preToolUse", paneId: paneId, harness: harness)
+            let firstParams = try Self.addressed("preToolUse", to: paneId)
+            let replayParams = try Self.addressed("preToolUse", to: paneId)
+            #expect(replayParams.provider == firstParams.provider)
+            #expect(replayParams.event == firstParams.event)
+            #expect(replayParams.handle == firstParams.handle)
+            #expect(replayParams.correlationId != firstParams.correlationId)
+            let first = try await harness.sessionEvent(params: firstParams)
+            let beforeReplay = try await harness.paneSnapshot(paneId: paneId)
 
             // Act
             let replay = try await harness.response(
                 method: "session.event",
                 params: try JSONDecoder().decode(
                     JSONValue.self,
-                    from: try JSONEncoder().encode(Self.addressed("preToolUse", to: paneId))
+                    from: try JSONEncoder().encode(replayParams)
                 )
             )
 
             // Assert
             #expect(first.disposition == .admitted)
-            #expect(
-                replay.error?.data
-                    == .object([
-                        "reason": .string("correlationConflict"),
-                        "fieldPath": .string("$.correlationId"),
-                    ])
-            )
+            #expect(replay.error == nil)
+            let recordedResult = try #require(replay.result)
+            let replayResult = try JSONDecoder().decode(
+                IPCSessionEventResult.self, from: JSONEncoder().encode(recordedResult))
+            #expect(replayResult.disposition == .admitted)
+            #expect(replayResult.paneId == first.paneId)
+            #expect(replayResult.correlationId == replayParams.correlationId)
+            let afterReplay = try await harness.paneSnapshot(paneId: paneId)
+            // Correlation aliases advance the operation ledger, not the domain state.
+            #expect(afterReplay.currentBinding == beforeReplay.currentBinding)
+            #expect(afterReplay.state == beforeReplay.state)
+            #expect(afterReplay.stateOrigin == beforeReplay.stateOrigin)
+            #expect(afterReplay.messages == beforeReplay.messages)
+            #expect(afterReplay.currentAttention == beforeReplay.currentAttention)
+            #expect(afterReplay.staleAttention == beforeReplay.staleAttention)
+            #expect(afterReplay.results == beforeReplay.results)
+            #expect(Set(afterReplay.historicalOccurrenceIds) == Set(beforeReplay.historicalOccurrenceIds))
+            #expect(afterReplay.losses == beforeReplay.losses)
             #expect(try await harness.sessionQuery(paneId: paneId).state == .running)
         } catch {
             await harness.tearDown()

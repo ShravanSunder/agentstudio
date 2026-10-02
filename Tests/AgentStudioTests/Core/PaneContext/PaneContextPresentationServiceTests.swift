@@ -1,0 +1,273 @@
+import AgentStudioInfrastructure
+import AgentStudioTestHarness
+import Foundation
+import Testing
+
+@testable import AgentStudioCore
+
+@Suite("Pane context presentation service")
+struct PaneContextPresentationServiceTests {
+    @Test("Committed own and drawer messages produce independent outstanding count groups")
+    func ownAndIncludingDrawersAreComputedFromRows() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            _ = try await fixture.display()
+            let child = try await fixture.attachDrawer()
+            let ownAsk = storage.ask(blocking: true)
+            let drawerAsk = storage.ask(paneId: child, blocking: true)
+            let drawerReply = storage.ask(paneId: child)
+            for request in [
+                ownAsk, drawerAsk, drawerReply, storage.message(), informationalNotice(storage, paneId: child),
+            ] {
+                try await storage.sendCreated(request, to: fixture.service)
+            }
+            let owner = try await fixture.display()
+            #expect(
+                owner.own
+                    == .init(
+                        needsApprovalCount: 1, needsReplyCount: 0, attentionCount: 1, informationalCount: 0,
+                        newestOpenBlockingAskId: ownAsk.messageId))
+            #expect(owner.includingDrawers.needsApprovalCount == 2)
+            #expect(owner.includingDrawers.needsReplyCount == 1)
+            #expect(owner.includingDrawers.attentionCount == 1)
+            #expect(owner.includingDrawers.informationalCount == 1)
+            let drawer = try await fixture.display(child)
+            #expect(drawer.own == drawer.includingDrawers)
+            #expect(drawer.own.needsApprovalCount == 1)
+            #expect(await fixture.latestPublished(storage.paneId) == .set(owner))
+            #expect(owner.revision == (try await storage.detail(fixture.service)).revision)
+        }
+    }
+
+    @Test("Answer, read, dismiss and withdrawal remove only outstanding contributions")
+    func settlementsRecountAndBumpRevision() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            _ = try await fixture.display()
+            let approval = storage.ask(blocking: true)
+            let reply = storage.ask()
+            let notice = storage.message()
+            let info = informationalNotice(storage)
+            for request in [approval, reply, notice, info] {
+                try await storage.sendCreated(request, to: fixture.service)
+            }
+            let before = try await fixture.display()
+            try #require(
+                await fixture.service.answer(
+                    .init(
+                        messageId: approval.messageId, paneId: storage.paneId, by: .localUser, value: .text("approved"))
+                ) == .answered)
+            try #require(await fixture.service.markRead(messageId: notice.messageId, paneId: storage.paneId) == .done)
+            try #require(await fixture.service.dismiss(messageId: info.messageId, paneId: storage.paneId) == .done)
+            try #require(
+                await fixture.service.withdraw(
+                    messageId: reply.messageId, paneId: storage.paneId, writer: storage.sender) == .withdrawn)
+            let after = try await fixture.display()
+            #expect(after.own == .zero)
+            #expect(after.includingDrawers == .zero)
+            #expect(after.revision.value > before.revision.value)
+            #expect(await fixture.latestPublished(storage.paneId) == .set(after))
+        }
+    }
+
+    @Test("Title and Agent Line retain typed values, reset and stale-write suppression")
+    func orderedWritesReachDisplayAndSink() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            let baseline = try await fixture.display()
+            let titleEpoch = try await storage.epoch(fixture.service)
+            let lineEpoch = try await storage.epoch(fixture.service, stream: .line)
+            #expect(try await fixture.display() == baseline)
+            try #require(
+                await fixture.service.setTitle(storage.title("Agent title", epoch: titleEpoch, counter: 1)) == .applied)
+            try #require(
+                await fixture.service.setLine(storage.line("Working", epoch: lineEpoch, counter: 2)) == .applied)
+            let written = try await fixture.display()
+            #expect(written.agentTitle == "Agent title")
+            #expect(written.agentLine?.summary == "Working")
+            #expect(written.agentLine?.stale == false)
+            #expect(written.revision.value > baseline.revision.value)
+            let stale = try await fixture.withNoPublication {
+                await fixture.service.setLine(storage.line("Late", epoch: lineEpoch, counter: 1))
+            }
+            #expect(stale == .stale(.lastAccepted(.init(epoch: lineEpoch, counter: 2))))
+            try #require(await fixture.service.setTitle(storage.title(nil, epoch: titleEpoch, counter: 2)) == .applied)
+            #expect(try await fixture.display().agentTitle == nil)
+            #expect(try await fixture.display().agentLine?.summary == "Working")
+        }
+    }
+
+    @Test("A later drawer ask wins even when its source position is lower")
+    func newestAskUsesReceiveTimeAcrossSources() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            _ = try await fixture.display()
+            let child = try await fixture.attachDrawer()
+            for _ in 0..<3 { try await storage.sendCreated(storage.message(), to: fixture.service) }
+            let ownerAsk = storage.ask(blocking: true)
+            try await storage.sendCreated(ownerAsk, to: fixture.service)
+            storage.time.shiftWallTime(by: 1)
+            let childAsk = storage.ask(paneId: child, blocking: true)
+            try await storage.sendCreated(childAsk, to: fixture.service)
+            let display = try await fixture.display()
+            #expect(display.own.newestOpenBlockingAskId == ownerAsk.messageId)
+            #expect(display.includingDrawers.newestOpenBlockingAskId == childAsk.messageId)
+        }
+    }
+
+    @Test("Session end leaves the line stale and clears that binding's open asks")
+    func sessionEndPublishesStaleLineAndCounts() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            _ = try await fixture.display()
+            let epoch = try await storage.epoch(fixture.service, stream: .line)
+            try #require(
+                await fixture.service.setLine(storage.line("Monitoring", epoch: epoch, counter: 1)) == .applied)
+            try await storage.sendCreated(storage.ask(blocking: true), to: fixture.service)
+            await fixture.service.sessionEnded(bindingGenerationId: try storage.bindingGenerationId)
+            let display = try await fixture.display()
+            #expect(display.agentLine?.summary == "Monitoring")
+            #expect(display.agentLine?.stale == true)
+            #expect(display.includingDrawers.needsApprovalCount == 0)
+            #expect(await fixture.latestPublished(storage.paneId) == .set(display))
+        }
+    }
+
+    @Test("Controlled expiry publishes stale line and zero blocking asks without a new write")
+    func deadlinePublishesDerivedChanges() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            _ = try await fixture.display()
+            let epoch = try await storage.epoch(fixture.service, stream: .line)
+            try #require(
+                await fixture.service.setLine(
+                    storage.line(
+                        "Expires", epoch: epoch, counter: 1,
+                        lifetime: .expires(at: storage.time.now.addingTimeInterval(10)))) == .applied)
+            let ask = storage.ask(blocking: true, deadline: storage.time.now.addingTimeInterval(10))
+            try await storage.sendCreated(ask, to: fixture.service)
+            let before = try await fixture.display()
+            try #require(before.own.needsApprovalCount == 1 && before.agentLine?.stale == false)
+            await storage.clock.waitForPendingSleepCount(exactly: 1)
+            storage.clock.advance(by: .seconds(10))
+            #expect(
+                await fixture.service.waitForAskOutcome(messageId: ask.messageId, paneId: storage.paneId) == .expired)
+            let after = try await fixture.display()
+            #expect(after.own.needsApprovalCount == 0)
+            #expect(after.agentLine?.stale == true)
+            #expect(await fixture.latestPublished(storage.paneId) == .set(after))
+        }
+    }
+
+    @Test("A replaced ask writer has no revision, count or sink effect; an earlier notice still publishes")
+    func heldBindingRaceHasNoAskPublication() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            let before = try await fixture.display()
+            let replacement = AgentMessageSender.session(
+                provider: try BridgeAgentProviderName("claude-code"),
+                sessionRef: try BridgeAgentSessionRef("replacement"),
+                bindingGeneration: UUIDv7.generate())
+            let result = try await fixture.withNoPublication {
+                try await withHeldPaneContextWrite(
+                    fixture: storage, name: "ask commit held before replacement and publication",
+                    operation: { await fixture.service.send(storage.ask()) },
+                    whileHeld: { try await storage.bind(replacement) })
+            }
+            #expect(result == .refused(.writerReplaced))
+            #expect(try await fixture.display() == before)
+            let notice = storage.message()
+            try await storage.sendCreated(notice, to: fixture.service)
+            let after = try await fixture.display()
+            #expect(after.own.attentionCount == 1)
+            #expect(await fixture.latestPublished(storage.paneId) == .set(after))
+        }
+    }
+
+    @Test("A drawer move recounts both owners, invalidates cursors and preserves the child's own counts")
+    func drawerMovePublishesCurrentComposition() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            _ = try await fixture.display()
+            let child = try await fixture.attachDrawer()
+            let second = PaneId.generateUUIDv7()
+            fixture.directory.commit(
+                changed: [.init(paneId: second, placement: .layout, ownedDrawerChildIds: [])], removed: [])
+            let ask = storage.ask(paneId: child, blocking: true)
+            try await storage.sendCreated(ask, to: fixture.service)
+            let before = try await fixture.display()
+            let childBefore = try await fixture.display(child)
+            fixture.directory.commit(
+                changed: [
+                    .init(paneId: storage.paneId, placement: .layout, ownedDrawerChildIds: []),
+                    .init(paneId: second, placement: .layout, ownedDrawerChildIds: [child]),
+                    .init(paneId: child, placement: .drawerChild(parentPaneID: second.uuid), ownedDrawerChildIds: []),
+                ], removed: [])
+            await fixture.service.reconcileMembership()
+            let after = try await fixture.display()
+            let newOwner = try await fixture.display(second)
+            #expect(after.includingDrawers.needsApprovalCount == 0)
+            #expect(newOwner.own == .zero)
+            #expect(newOwner.includingDrawers.newestOpenBlockingAskId == ask.messageId)
+            #expect(after.revision.value > before.revision.value)
+            #expect(try await fixture.display(child).own == childBefore.own)
+            #expect(
+                await fixture.service.readDetail(
+                    .init(
+                        paneId: storage.paneId, page: .more(source: child, after: .init(rank: 0, position: 2))))
+                    == .sourceNotInView)
+            #expect(await fixture.latestPublished(second) == .set(newOwner))
+        }
+    }
+
+    @Test("Overflow reconciliation publishes every current pane and removes a key deleted during the hold")
+    func allReconcileNeverLosesRemoval() async throws {
+        try await withPaneContextPresentationService { fixture in
+            _ = try await fixture.display()
+            let deleted = PaneId.generateUUIDv7()
+            fixture.directory.commit(
+                changed: [.init(paneId: deleted, placement: .layout, ownedDrawerChildIds: [])], removed: [])
+            await fixture.service.reconcileMembership()
+            _ = try await fixture.display(deleted)
+            try #require(await fixture.latestPublished(deleted) != nil)
+            _ = fixture.directory.takeAffectedOwners()
+            let live = (0...AppPolicies.PaneContext.maximumPendingAffectedOwners).map { _ in PaneId.generateUUIDv7() }
+            fixture.directory.commit(
+                changed: live.map {
+                    .init(paneId: $0, placement: .layout, ownedDrawerChildIds: [])
+                }, removed: [deleted])
+            await fixture.service.reconcileMembership()
+            for paneId in live {
+                let display = try await fixture.display(paneId)
+                #expect(await fixture.latestPublished(paneId) == .set(display))
+            }
+            #expect(await fixture.latestPublished(deleted) == .remove)
+            #expect(await fixture.service.readDisplay(paneId: deleted) == nil)
+        }
+    }
+
+    @Test("Permanent service retirement joins the publication lane and rejects late writes")
+    func retirementPublishesRemovalWithoutResurrection() async throws {
+        try await withPaneContextPresentationService { fixture in
+            let storage = fixture.storage
+            _ = try await fixture.display()
+            try await storage.sendCreated(storage.message(), to: fixture.service)
+            let display = try await fixture.display()
+            try #require(await fixture.latestPublished(storage.paneId) == .set(display))
+            fixture.service.retire([storage.paneId])
+            #expect(await fixture.service.readDetail(.init(paneId: storage.paneId, page: .first)) == .paneGone)
+            await fixture.service.reconcileMembership()
+            #expect(await fixture.latestPublished(storage.paneId) == .remove)
+            #expect(await fixture.service.readDisplay(paneId: storage.paneId) == nil)
+            #expect(await fixture.service.send(storage.message(body: "Late")) == .refused(.paneGone))
+            #expect(await fixture.latestPublished(storage.paneId) == .remove)
+        }
+    }
+}
+
+private func informationalNotice(_ storage: PaneContextServiceFixture, paneId: PaneId? = nil) -> PaneMessageSendRequest
+{
+    .init(
+        paneId: paneId ?? storage.paneId, messageId: .generateUUIDv7(), sender: storage.sender,
+        sourceOccurredAt: nil, importance: .info, body: "Information", why: nil, actions: [], shape: .notice)
+}
