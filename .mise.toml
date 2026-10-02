@@ -394,27 +394,6 @@ description = "Run fast lane: fast non-WebKit tests, excluding large script/smok
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
-[tasks."ci:fast-shard-manifest"]
-description = "Regenerate the native fast shard manifest from a complete F2 event stream"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-: "${SWIFT_TEST_FAST_SHARD_F2_EVENTS:?set this to the complete F2 event-stream JSONL path}"
-: "${SWIFT_TEST_FAST_SHARD_F2_TIMING:?set this to its timing JSON path}"
-: "${SWIFT_TEST_FAST_SHARD_F2_RUN_ID:?set this to the source CI run id}"
-: "${SWIFT_TEST_FAST_SHARD_F2_HEAD_SHA:?set this to the source lane head SHA}"
-manifest_path="${PROJECT_ROOT}/scripts/swift-test-fast-shard-manifest.json"
-temporary_manifest="${manifest_path}.tmp.$$"
-trap 'rm -f "$temporary_manifest"' EXIT
-/usr/bin/perl "${PROJECT_ROOT}/scripts/swift-test-fast-shard-inventory.pl" manifest \
-  "$SWIFT_TEST_FAST_SHARD_F2_EVENTS" \
-  "$SWIFT_TEST_FAST_SHARD_F2_TIMING" \
-  "$SWIFT_TEST_FAST_SHARD_F2_RUN_ID" \
-  "$SWIFT_TEST_FAST_SHARD_F2_HEAD_SHA" >"$temporary_manifest"
-mv "$temporary_manifest" "$manifest_path"
-trap - EXIT
-"""
-
 [tasks."test:swift:large"]
 description = "Run large non-WebKit script, smoke, and integration tests"
 depends = ["verify-vendors", "bridge-web-build"]
