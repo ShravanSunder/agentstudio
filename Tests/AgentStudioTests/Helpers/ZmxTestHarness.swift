@@ -7,6 +7,14 @@ import Foundation
 @testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
+// swiftlint:disable file_length
+// R1 gate 3 (Lead 2026-10-02): the socket-wait race against the launcher's
+// own exit pushed this file past the 1000-line warning (973 -> ~1030); the
+// 2000-line error threshold is untouched. Matches this repo's own existing
+// convention for files in this position (e.g. PaneTabViewController.swift,
+// WorkspaceStoreTests.swift) rather than splitting the file as part of this
+// fix's scope.
+
 /// Isolated zmx environment for integration tests.
 /// Each test run uses a unique ZMX_DIR (temp directory) to prevent cross-test interference.
 final class ZmxTestHarness: @unchecked Sendable {
@@ -371,9 +379,16 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// (`SessionSettlementError.sessionDirectoryUnwatchable`), not poll
     /// hoping the directory becomes openable. No deadline/timeout
     /// parameter remains on this function at all.
+    ///
+    /// R1 gate 3 (Lead 2026-10-02): `zmxLauncherProcessID`, when known, races
+    /// the watch below against that launcher exiting -- see
+    /// `awaitSessionSocketEvent`'s doc comment. `nil` (default) leaves every
+    /// other caller, including this file's own `exists: false` checks,
+    /// unchanged.
     func waitForSessionSocket(
         sessionId: String,
-        exists expectedExists: Bool
+        exists expectedExists: Bool,
+        racingAgainstExitOf zmxLauncherProcessID: Int32? = nil
     ) async throws -> Bool {
         let sessionSocketPath = sessionSocketPath(for: sessionId)
         if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
@@ -396,7 +411,8 @@ final class ZmxTestHarness: @unchecked Sendable {
         return await awaitSessionSocketEvent(
             fileDescriptor: directoryFileDescriptor,
             sessionSocketPath: sessionSocketPath,
-            exists: expectedExists
+            exists: expectedExists,
+            racingAgainstExitOf: zmxLauncherProcessID
         )
     }
 
@@ -430,7 +446,7 @@ final class ZmxTestHarness: @unchecked Sendable {
                 processID: processID
             ))
 
-        try await waitUntilSessionSettled(sessionId: sessionId)
+        try await waitUntilSessionSettled(sessionId: sessionId, zmxLauncherProcessID: processID)
         return process
     }
 
@@ -452,7 +468,9 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// The returned process must be awaited by callers through `cleanup()`.
     func spawnColdRestoreSession(plan: TerminalColdRestorePlan) async throws -> Process {
         let process = try spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
-        try await waitUntilSessionSettled(sessionId: plan.sessionID.rawValue)
+        try await waitUntilSessionSettled(
+            sessionId: plan.sessionID.rawValue, zmxLauncherProcessID: process.processIdentifier
+        )
         return process
     }
 
@@ -566,9 +584,21 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// for its own transient-connect-failure case, instead of its own
     /// polling loop -- the one architecture-debt-ledger-tracked polling
     /// instance in this file stays the only one; no new retry site.
+    ///
+    /// R1 gate 3 (Lead 2026-10-02): `zmxLauncherProcessID`, when known, races
+    /// the socket wait below against that launcher's exit; `nil` (default)
+    /// leaves every other caller, `RealEventWaits`' retry-reuse included,
+    /// unchanged.
     @discardableResult
-    func waitUntilSessionSettled(sessionId: String) async throws -> ZmxSessionIdentity {
-        guard try await waitForSessionSocket(sessionId: sessionId, exists: true) else {
+    func waitUntilSessionSettled(
+        sessionId: String,
+        zmxLauncherProcessID: Int32? = nil
+    ) async throws -> ZmxSessionIdentity {
+        guard
+            try await waitForSessionSocket(
+                sessionId: sessionId, exists: true, racingAgainstExitOf: zmxLauncherProcessID
+            )
+        else {
             throw SessionSettlementError.socketNeverAppeared(sessionId: sessionId)
         }
         let socketPath = sessionSocketPath(for: sessionId)
@@ -741,12 +771,9 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// appeared") whenever the daemon was merely slow, not actually broken
     /// -- "wrapping a timeout in HeldStep does not change what determines
     /// its verdict." Register-then-check against the real event alone now;
-    /// a socket that genuinely never appears is caught by the suite's own
-    /// runner-owned hang bound, which names this step
-    /// ("session socket event") as what was awaited. A caller that needs a
-    /// true negative result (not just a hang) must race this against a
-    /// correlated real fact of its own -- the zmx process it expected to
-    /// create the socket exiting -- not against time.
+    /// a socket that genuinely never appears with no `zmxLauncherProcessID`
+    /// given is caught only by the suite's own runner-owned hang bound,
+    /// which names this step ("session socket event") as what was awaited.
     ///
     /// R2-4 item 2 (review round 2, Lead 2026-10-01): the prior shape ran
     /// its "register-then-check" synchronously on the caller's own Task
@@ -760,10 +787,23 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// caller (`waitForSessionSocket`) no longer does, for the same A4
     /// reasoning: only the cancel handler is the SDK's documented
     /// safe-to-close point (source.h:449).
+    ///
+    /// R1 gate 3 (Lead 2026-10-02): `zmxLauncherProcessID`, when given, races
+    /// this wait against that process exiting -- "the zmx process it
+    /// expected to create the socket exiting," named above but not yet
+    /// built. Confirmed against source: `zmx attach`'s
+    /// `Daemon.ensureSession`/`run` (vendor/zmx/src/loop.zig:741,763-784)
+    /// creates and binds the socket synchronously, before any fork, inside
+    /// this exact launcher; any failure there exits the launcher with no
+    /// socket ever created and nothing under `zmxDir` to watch for. The
+    /// launcher does not exit quickly on success -- `run()`'s
+    /// `error.IsClientProc` branch (loop.zig:769-777) keeps it alive as the
+    /// attached client for the whole session -- so this cannot false-positive.
     private func awaitSessionSocketEvent(
         fileDescriptor: Int32,
         sessionSocketPath: String,
-        exists expectedExists: Bool
+        exists expectedExists: Bool,
+        racingAgainstExitOf zmxLauncherProcessID: Int32?
     ) async -> Bool {
         let step = HeldStep<Bool>("session socket event")
         let eventSource = DispatchSource.makeFileSystemObjectSource(
@@ -778,7 +818,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         // `arriveBlocking` directly. Idempotent: a settled source is
         // already cancelled, so a harmless re-entry from the other
         // callback finds nothing new to do.
-        func checkAndSettleIfReady() {
+        func checkAndSettleIfSocketReady() {
             guard FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists else { return }
             eventSource.cancel()
             // A raw GCD callback on .global(), not inside a Swift Task.
@@ -786,7 +826,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         }
 
         eventSource.setEventHandler {
-            checkAndSettleIfReady()
+            checkAndSettleIfSocketReady()
         }
         // A4-shaped: closes the descriptor this source owns, exactly once,
         // only once cancellation has actually completed.
@@ -796,12 +836,49 @@ final class ZmxTestHarness: @unchecked Sendable {
         // The mandatory initial check, run once kernel registration is
         // confirmed complete -- not synchronously after `resume()` returns.
         eventSource.setRegistrationHandler {
-            checkAndSettleIfReady()
+            checkAndSettleIfSocketReady()
         }
         eventSource.resume()
 
+        // R1 gate 3: the other half of the race, armed only when named.
+        // Mirrors `resolveViaSetsidWatch`'s own register-then-check process
+        // watch; `HeldStep` guarantees only the first of the two sources
+        // racing here wins. `kill(pid, 0)` is the authoritative liveness
+        // check, not the dispatch source's own `.data` (which misses a
+        // launcher already gone before registration completed).
+        var processExitSource: DispatchSourceProcess?
+        if let zmxLauncherProcessID {
+            let exitSource = DispatchSource.makeProcessSource(
+                identifier: zmxLauncherProcessID,
+                eventMask: [.exit],
+                queue: DispatchQueue.global(qos: .userInitiated)
+            )
+            func launcherConfirmedGoneWithoutSocket() -> Bool {
+                guard FileManager.default.fileExists(atPath: sessionSocketPath) != expectedExists else {
+                    return false
+                }
+                return kill(zmxLauncherProcessID, 0) != 0 && errno == ESRCH
+            }
+            func checkAndSettleIfLauncherGone() {
+                guard launcherConfirmedGoneWithoutSocket() else { return }
+                eventSource.cancel()
+                exitSource.cancel()
+                try? step.arriveBlocking(false)
+            }
+            exitSource.setEventHandler {
+                checkAndSettleIfLauncherGone()
+            }
+            exitSource.setCancelHandler {}
+            exitSource.setRegistrationHandler {
+                checkAndSettleIfLauncherGone()
+            }
+            exitSource.resume()
+            processExitSource = exitSource
+        }
+
         let result = (try? await step.firstArrival()) ?? false
         step.release()
+        processExitSource?.cancel()
         // Safety net, not the primary path: if `firstArrival()` returned
         // through external cancellation rather than a matched check above,
         // the source may still be live -- cancelling here is a no-op when
