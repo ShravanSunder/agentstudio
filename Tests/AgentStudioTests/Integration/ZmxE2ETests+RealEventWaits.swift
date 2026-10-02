@@ -70,11 +70,36 @@ extension E2ESerializedTests.ZmxE2ETests {
     ///    bound, never a private time budget. The directory watch itself is
     ///    unchanged for the genuinely-absent case below: the socket file
     ///    appearing IS a write/rename on this directory.
+    ///
+    /// N1 (advisor review round 2, Lead 2026-10-02): `backend` widened from
+    /// the concrete `ZmxBackend` to `any ZmxSessionRestoreProbing` -- the
+    /// protocol `observeSessionIdentity` is actually declared on, and the
+    /// same one `resolveRecreationVerdictOffMain`
+    /// (`WorkspaceSurfaceCoordinator+TerminalContentMounting.swift`) already
+    /// takes -- purely so this function's own lifetime test can drive it
+    /// with a held fake probe instead of a real zmx daemon. Every existing
+    /// call site still passes a concrete `ZmxBackend`, which already
+    /// conforms; no behavior change. `queue` and the two fact sinks are the
+    /// same kind of seam (default global queue / no-op closures) already
+    /// established by `ColdStartObserverTests.ScriptedSyscalls`'s own
+    /// `directoryOpenCallFactSink`/`directoryCloseCallFactSink` pair --
+    /// mirrored here rather than a new shape, so a test can learn the real
+    /// descriptor number at open time and observe the real close instead of
+    /// racing a queue-drain proxy for either (the same unsoundness
+    /// `directoryDescriptorStaysOpenUntilCancellationCompletes`,
+    /// `ColdStartObserverWatchSourceOwnershipTests.swift`, already found and
+    /// fixed for the production observer).
     func awaitSessionIdentityOnRealEvent(
-        _ sessionID: ZmxSessionID, backend: ZmxBackend, zmxDirectory: String
+        _ sessionID: ZmxSessionID,
+        backend: any ZmxSessionRestoreProbing,
+        zmxDirectory: String,
+        queue: DispatchQueue = .global(qos: .userInitiated),
+        directoryOpenFactSink: @escaping @Sendable (Int32) -> Void = { _ in },
+        directoryCloseFactSink: @escaping @Sendable (Int32) -> Void = { _ in }
     ) async throws -> Data {
         let directoryFileDescriptor = open(zmxDirectory, O_EVTONLY)
         guard directoryFileDescriptor >= 0 else { throw ZmxSessionControlFailure.unavailable }
+        directoryOpenFactSink(directoryFileDescriptor)
 
         let scope = "zmxDirectoryEvent"
         let source = LocalFactSource(
@@ -99,7 +124,7 @@ extension E2ESerializedTests.ZmxE2ETests {
         let eventSource = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: directoryFileDescriptor,
             eventMask: [.write, .rename],
-            queue: DispatchQueue.global(qos: .userInitiated)
+            queue: queue
         )
         eventSource.setEventHandler {
             // A raw GCD callback on .global(), not inside a Swift Task;
@@ -109,9 +134,34 @@ extension E2ESerializedTests.ZmxE2ETests {
             sink(scope, ())
         }
         // A4-shaped: closes the descriptor this source owns, exactly once,
-        // only once cancellation has actually completed.
+        // only once cancellation has actually completed. The fact sink is
+        // a no-op in production (default `{ _ in }`); N1's own test is the
+        // only caller that supplies one, to observe the real close instead
+        // of racing a queue-drain proxy for it (the same unsoundness
+        // `directoryDescriptorStaysOpenUntilCancellationCompletes`,
+        // `ColdStartObserverWatchSourceOwnershipTests.swift`, already
+        // found and fixed for the production observer).
         eventSource.setCancelHandler {
             close(directoryFileDescriptor)
+            directoryCloseFactSink(directoryFileDescriptor)
+        }
+        // A2 (advisor review round 2, Lead 2026-10-02): this function's own
+        // loop below already checks `backend.observeSessionIdentity`
+        // *before* ever parking on `recorder.expectNext`, so it is not
+        // blind the way a bare synchronous-after-`resume()` check would be
+        // -- but if the socket's creation write lands in the gap between
+        // this `resume()` call and kernel registration actually completing
+        // (SDK source.h:745), the kqueue event for it is never generated at
+        // all, and once this loop *is* parked on `expectNext`, nothing else
+        // would ever wake it to re-check. Firing the identical "directory
+        // event" fact from the registration handler closes that gap: if the
+        // loop is already parked, this wakes it to re-check now that
+        // registration is confirmed; if it isn't parked yet, `expectNext`'s
+        // own history scan (not a live race) still finds this fact later.
+        // No new async machinery needed -- this mirrors `setEventHandler`'s
+        // own closure exactly, just from the registration callback instead.
+        eventSource.setRegistrationHandler {
+            sink(scope, ())
         }
         eventSource.resume()
         defer { eventSource.cancel() }
