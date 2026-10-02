@@ -719,7 +719,20 @@ struct ColdStartObserverTests {
     ///    (`ColdStartObserverFacts.swift`, mirroring
     ///    `TerminalActivityProjector`'s): `checkForSocketAndAdvance` posts
     ///    `.socketCheckRan(.registration)` unconditionally, before its
-    ///    existence guard -- awaited below, before the file even exists.
+    ///    existence guard.
+    ///
+    /// Gate 5 fix (Lead 2026-10-02): the registration handler's block itself
+    /// runs on `testQueue` (`beginDiscovery`'s `DispatchSource.makeFileSystemObjectSource(...,
+    /// queue: targetQueue)`), so it cannot fire while `testQueue` is still
+    /// suspended -- awaiting `.socketCheckRan(.registration)` before
+    /// `testQueue.resume()` self-deadlocks. The file is created and the
+    /// queue resumed first; `expectNext`'s exact-match overload
+    /// (`FactRecorder.swift`) then requires the very next fact in this
+    /// scope to equal `.socketCheckRan(.registration)`, throwing
+    /// `UnexpectedFact` rather than skipping ahead if it is not -- so a
+    /// removed mandatory check, which would leave only a later
+    /// `.socketCheckRan(.directoryEvent)` fact (from the same `createFile`
+    /// call's real `NOTE_WRITE`) or none at all, still fails this.
     @Test("the discovery watch's mandatory check observes an event that lands while its queue is suspended")
     func discoveryMandatoryCheckWaitsForConfirmedKernelRegistration() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
@@ -770,18 +783,19 @@ struct ColdStartObserverTests {
         // unconditionally already run.
         try await directoryOpenCallRecorder.expectNext(in: ScriptedSyscalls.directoryOpenScope, 1)
 
-        // R3-3 item 2: the check ran before the file exists at all -- a
-        // removed mandatory check would never post this.
-        _ = try await observerFactRecorder.expectNext(
-            in: "coldStartFact", where: { $0 == .socketCheckRan(.registration) },
-            "registration handler's mandatory socket check")
-
+        // The file exists before either handler's block can actually run --
+        // the queue is still suspended.
         FileManager.default.createFile(atPath: socketPath, contents: nil)
         testQueue.resume()
 
-        // Assert: the mandatory check -- gated on confirmed registration,
-        // not the earlier resume() call -- observes the file once the
-        // queue is free to run it.
+        // R3-3 item 2, gate 5 fix: the FIRST socketCheckRan fact in this
+        // scope must be the registration handler's -- a removed mandatory
+        // check would never post this, leaving only a later
+        // `.directoryEvent` fact (or none) here instead.
+        _ = try await observerFactRecorder.expectNext(in: "coldStartFact", .socketCheckRan(.registration))
+
+        // Assert: that same check observed the file it just created and
+        // proceeded to attempt the connect.
         try await observeSessionCallRecorder.expectNext(in: ScriptedSyscalls.observeSessionScope, 1)
 
         let settledOutcome = await outcome

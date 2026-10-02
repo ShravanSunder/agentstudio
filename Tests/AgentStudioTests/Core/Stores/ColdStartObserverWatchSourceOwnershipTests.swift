@@ -393,6 +393,17 @@ struct ColdStartObserverWatchSourceOwnershipTests {
             zmxDirectory: temporaryDirectory, socketPath: socketPath, bootID: "test-boot-id", attemptID: attemptID)
         #expect(outcome == .handedOff)
 
+        // Gate 5 fix: discovery's own mandatory check (its real directory
+        // watch's registration handler) also posts to this same scope --
+        // the socket file already exists (created above, before this
+        // call), so `checkForSocketAndAdvance` sees it immediately and
+        // proceeds, all before this `await` returns (the test's own first
+        // synchronization point, per the doc comment above). Consumed here,
+        // in the order the scenario actually produces it, so Act 3's own
+        // expectation below lands on the stale callback's fact, not this
+        // earlier one.
+        _ = try await settlementFactRecorder.expectNext(in: "coldStartObserverFact", .socketCheckRan(.registration))
+
         // Assert ownership: every source created is either current (none
         // are, now that settlement tore down the last one too) or
         // cancelled -- the pre-emptive source cancelled when discovery's
@@ -421,10 +432,11 @@ struct ColdStartObserverWatchSourceOwnershipTests {
         // run before the guard has decided anything at all. This fact is
         // posted as that guard's own last step, so observing it here is
         // proof the guard genuinely ran and chose `.ignoredAsStale`, not
-        // merely that nothing has happened yet.
-        let settlementDisposition = try await settlementFactRecorder.expectNext(
-            in: "coldStartObserverFact", where: { _ in true }, "stale setsid callback settlement")
-        #expect(settlementDisposition == .setsidSettlementProcessed(.ignoredAsStale))
+        // merely that nothing has happened yet. Gate 5 fix: the exact-match
+        // overload, now that Act 2's own earlier fact is already consumed
+        // above -- this is the next, and only remaining, fact in the scope.
+        _ = try await settlementFactRecorder.expectNext(
+            in: "coldStartObserverFact", .setsidSettlementProcessed(.ignoredAsStale))
 
         // Assert: ignored. No new source, and the already-settled handoff
         // source stays cancelled exactly once -- not torn down a second
