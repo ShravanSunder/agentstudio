@@ -842,10 +842,14 @@ final class ZmxTestHarness: @unchecked Sendable {
 
         // R1 gate 3: the other half of the race, armed only when named.
         // Mirrors `resolveViaSetsidWatch`'s own register-then-check process
-        // watch; `HeldStep` guarantees only the first of the two sources
-        // racing here wins. `kill(pid, 0)` is the authoritative liveness
-        // check, not the dispatch source's own `.data` (which misses a
-        // launcher already gone before registration completed).
+        // watch, including its `exitFired` shape: a real `NOTE_EXIT` is the
+        // fact once it fires -- not the launcher's reaped status, which
+        // races Foundation's own `Process` reaping it on an unrelated
+        // handler. `kill(pid, 0)` is only the mandatory initial check's own
+        // fallback, for a launcher already gone (and possibly already
+        // reaped) before this watch's kevent was registered to see a real
+        // exit event for it. `HeldStep` guarantees only the first of the
+        // two sources racing here wins.
         var processExitSource: DispatchSourceProcess?
         if let zmxLauncherProcessID {
             let exitSource = DispatchSource.makeProcessSource(
@@ -853,24 +857,28 @@ final class ZmxTestHarness: @unchecked Sendable {
                 eventMask: [.exit],
                 queue: DispatchQueue.global(qos: .userInitiated)
             )
-            func launcherConfirmedGoneWithoutSocket() -> Bool {
+            // Pure: true only once the socket still never matched, and
+            // either the real exit event fired or (registration-time only)
+            // the launcher is independently confirmed gone.
+            func launcherGone(exitFired: Bool) -> Bool {
                 guard FileManager.default.fileExists(atPath: sessionSocketPath) != expectedExists else {
                     return false
                 }
+                if exitFired { return true }
                 return kill(zmxLauncherProcessID, 0) != 0 && errno == ESRCH
             }
-            func checkAndSettleIfLauncherGone() {
-                guard launcherConfirmedGoneWithoutSocket() else { return }
+            func checkAndSettleIfLauncherGone(exitFired: Bool) {
+                guard launcherGone(exitFired: exitFired) else { return }
                 eventSource.cancel()
                 exitSource.cancel()
                 try? step.arriveBlocking(false)
             }
             exitSource.setEventHandler {
-                checkAndSettleIfLauncherGone()
+                checkAndSettleIfLauncherGone(exitFired: exitSource.data.contains(.exit))
             }
             exitSource.setCancelHandler {}
             exitSource.setRegistrationHandler {
-                checkAndSettleIfLauncherGone()
+                checkAndSettleIfLauncherGone(exitFired: false)
             }
             exitSource.resume()
             processExitSource = exitSource
