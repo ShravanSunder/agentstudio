@@ -27,7 +27,8 @@ struct IPCCompiledInvocationResolverTests {
         let event = try #require(descriptors.first { $0.metadata.name == "session.event" })
         let sample = try #require(event.metadata.examples.first)
         let encoded = try JSONEncoder().encode(sample)
-        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let decoded = try JSONSerialization.jsonObject(with: encoded)
+        let object = try #require(decoded as? [String: Any])
         let parameters = try #require(object["parameters"] as? [String: Any])
         _ = try event.normalizeParameters(JSONSerialization.data(withJSONObject: parameters))
     }
@@ -74,7 +75,8 @@ struct IPCCompiledInvocationResolverTests {
     func overviewHelpConstructsNoDescriptors() throws {
         let observation = ResolverFactoryObservation()
         let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
-        let help = try #require(resolver.localHelp(arguments: ["--help"], inputs: inputs))
+        let rendered = try resolver.localHelp(arguments: ["--help"], inputs: inputs)
+        let help = try #require(rendered)
         #expect(help.contains("session.event"))
         #expect(help.contains("Project one provider lifecycle event into Sessions for the target pane."))
         #expect(observation.descriptorNames.isEmpty)
@@ -85,7 +87,8 @@ struct IPCCompiledInvocationResolverTests {
     func detailedHelpConstructsNoDescriptors() throws {
         let observation = ResolverFactoryObservation()
         let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
-        let help = try #require(resolver.localHelp(arguments: ["terminal.send", "--help"], inputs: inputs))
+        let rendered = try resolver.localHelp(arguments: ["terminal.send", "--help"], inputs: inputs)
+        let help = try #require(rendered)
         #expect(help.contains("Send exact input to one terminal pane."))
         #expect(help.contains("handle"))
         #expect(help.contains("input"))
