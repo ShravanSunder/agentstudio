@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioInfrastructure
+import AgentStudioSessions
 import Foundation
 import Testing
 
@@ -121,7 +122,7 @@ struct AppIPCProductionLifecycleIntegrationTests {
 
         #expect(appDelegate.appIPCServer == nil)
         #expect(appDelegate.paneReportSpoolDrainTask == nil)
-        #expect(appDelegate.appIPCSessionsIngestion == nil)
+        #expect(appDelegate.appIPCSessionsPaneContextComposition == nil)
     }
 
     @Test("production App start reuses the early registry and shutdown persists a later unused token")
@@ -136,6 +137,7 @@ struct AppIPCProductionLifecycleIntegrationTests {
 
             await harness.appDelegate.startAppIPCServer()
             let server = try #require(harness.appDelegate.appIPCServer)
+            let composition = try #require(harness.appDelegate.appIPCSessionsPaneContextComposition)
             #expect(server.principalRegistry === earlyRegistry)
 
             let shutdownOnlyPane = harness.store.createPane()
@@ -153,6 +155,14 @@ struct AppIPCProductionLifecycleIntegrationTests {
             await harness.appDelegate.drainAppIPCCredentialPersistence()
 
             #expect(harness.appDelegate.appIPCServer == nil)
+            #expect(harness.appDelegate.appIPCSessionsPaneContextComposition == nil)
+            #expect(harness.coordinator.paneContextService == nil)
+            await #expect(throws: SessionsRepositoryError.ingestionFinished) {
+                _ = try await composition.ingestion.prepareForLaunch(at: Date())
+            }
+            let closed = await composition.paneContextService.readDetail(
+                .init(paneId: PaneId(existingUUID: shutdownOnlyPane.id), page: .first))
+            #expect(closed == .unavailable(.decodeFailed("serviceStopped")))
             #expect(
                 try await harness.appDelegate.appIPCContinuityRepository.paneCredential(
                     paneID: readinessPane.id,

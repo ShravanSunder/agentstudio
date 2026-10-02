@@ -110,7 +110,7 @@ struct SessionsPaneContextCompositionTests {
         let harness = try await Self.withPaneCredential(try await fixture.freshPanePair())
         let messageId = UUIDv7.generate()
         let send = IPCPaneMessageSendParams(
-            handle: harness.boundPaneId.uuidString, messageId: messageId, importance: .info,
+            handle: "self", messageId: messageId, importance: .info,
             body: "A production-wired notice", actions: [], shape: .notice, correlationId: UUIDv7.generate())
         let sent: IPCPaneMessageSendResult = try await harness.decoded(
             method: "pane.message.send", params: JSONRPCCodec.encodeJSONValue(send), authentication: .boundPane)
@@ -118,10 +118,36 @@ struct SessionsPaneContextCompositionTests {
         let detail: IPCPaneContextGetResult = try await harness.decoded(
             method: "pane.context.get",
             params: JSONRPCCodec.encodeJSONValue(
-                IPCPaneContextGetParams(handle: harness.boundPaneId.uuidString, page: .first)),
+                IPCPaneContextGetParams(handle: "self", page: .first)),
             authentication: .boundPane)
         #expect(detail.paneId == harness.boundPaneId)
         #expect(detail.messages.contains { $0.id == messageId && $0.sourcePaneId == harness.boundPaneId })
+    }
+
+    @Test("Boot connects permanent retirement to the service that admits pane messages")
+    func bootCompositionForwardsPermanentRetirement() async throws {
+        let composition = try #require(
+            SessionsVerticalHarnessContext.current?.harness.appDelegate.appIPCSessionsPaneContextComposition,
+            "Boot did not construct the Sessions/PaneContext composition")
+        let fixture = try #require(SessionsVerticalHarnessContext.current)
+        let harness = try await fixture.freshPanePair()
+        let coordinator = harness.commandHarness.coordinator
+        #expect(coordinator.paneContextService === composition.paneContextService)
+        let paneId = PaneId(existingUUID: harness.boundPaneId)
+        let first = AgentMessageId.generateUUIDv7()
+        #expect(
+            await composition.paneContextService.send(
+                .init(
+                    paneId: paneId, messageId: first, sender: .pane(paneId), sourceOccurredAt: nil,
+                    importance: .info, body: "Before retirement", why: nil, actions: [], shape: .notice))
+                == .created(first))
+        coordinator.retirePanesPermanently([paneId.uuid])
+        #expect(
+            await composition.paneContextService.send(
+                .init(
+                    paneId: paneId, messageId: .generateUUIDv7(), sender: .pane(paneId), sourceOccurredAt: nil,
+                    importance: .info, body: "After retirement", why: nil, actions: [], shape: .notice))
+                == .refused(.paneGone))
     }
 
     // Reuse the suite's real server/datastore; only the credential-bearing value changes.

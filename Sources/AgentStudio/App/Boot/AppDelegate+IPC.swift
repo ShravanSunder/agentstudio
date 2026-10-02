@@ -182,7 +182,8 @@ extension AppDelegate {
             return .initializationCancelled
         }
         guard appIPCServer == nil else { return nil }
-        guard let sessionsIngestion = await prepareAppIPCSessionsIngestion(datastore: workspaceSQLiteDatastore) else {
+        guard let sessionsComposition = await prepareAppIPCSessionsPaneContext(datastore: workspaceSQLiteDatastore)
+        else {
             if !Task.isCancelled {
                 recordAppIPCStart(unavailable: .sessionsIngestionFailed)
                 return .sessionsIngestionFailed
@@ -191,14 +192,14 @@ extension AppDelegate {
         }
 
         do {
-            guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else {
+            guard let composition = try await makeAppIPCServer(sessionsComposition: sessionsComposition) else {
                 return Task.isCancelled ? .initializationCancelled : nil
             }
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
-            startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
+            startPaneReportSpoolDrain(sessionsComposition: sessionsComposition)
             recordAppIPCStart()
             return nil
         } catch {
@@ -265,18 +266,13 @@ extension AppDelegate {
     /// Notifications the CLI spooled while this app was unreachable are admitted
     /// once IPC is listening and ingestion is prepared. The drain is detached and
     /// awaited nowhere, so no startup, terminal or zmx path waits on it.
-    private func startPaneReportSpoolDrain(sessionsIngestion: SessionsIngestion) {
+    private func startPaneReportSpoolDrain(sessionsComposition: SessionsPaneContextComposition) {
         guard paneReportSpoolDrainTask == nil, let spoolDirectory = appIPCPaths?.spoolDirectory else {
             return
         }
-        let lateAdmission = AgentStudioIPCSessionsAdapter(
-            ingestion: sessionsIngestion,
-            providerRegistry: SessionsProviderAdapterRegistry(profiles: appIPCSessionsProviderProfiles),
-            admissionFreshness: .late
-        )
         let spool: PaneReportSpool
         do {
-            spool = try PaneReportSpool(admission: lateAdmission)
+            spool = try PaneReportSpool(admission: sessionsComposition.lateSessionsAdapter)
         } catch {
             appLogger.warning(
                 "Offline notification drain skipped: \(error.localizedDescription, privacy: .private)"
@@ -300,55 +296,58 @@ extension AppDelegate {
         }
     }
 
-    /// Sessions ingestion is built with the IPC server, not on the first-frame
+    /// The owner composition is built with the IPC server, not on the first-frame
     /// or terminal paths. Launch preparation ends the previous run's active
     /// sources before any live report can reach them.
-    private func prepareAppIPCSessionsIngestion(
+    private func prepareAppIPCSessionsPaneContext(
         datastore: WorkspaceSQLiteDatastoreActor
-    ) async -> SessionsIngestion? {
-        if let existing = appIPCSessionsIngestion { return existing }
+    ) async -> SessionsPaneContextComposition? {
+        if let existing = appIPCSessionsPaneContextComposition { return existing }
         let statusAtom = atomStore.sessionStatus
         let viewedMailbox = atomStore.sessionsPaneViewedMailbox
         let applyMeasurement = SessionStatusApplyMeasurement()
         let traceRecorder = performanceTraceRecorder
-        workspaceSurfaceCoordinator?.sessionsPaneViewedMailbox = viewedMailbox
-        let ingestion = SessionsIngestion(
-            repository: SessionsRepository(
-                sqliteAccess: WorkspaceSessionsSQLiteAccess(datastore: datastore)
-            ),
-            limits: SessionsIngestionLimits(
-                maximumPendingPerPane: AppPolicies.Sessions.maximumPendingIngestionPerPane,
-                maximumPendingGlobal: AppPolicies.Sessions.maximumPendingIngestionGlobal
-            ),
-            // Ingestion statistics carry a raw pane UUID, which the OTLP scrub
-            // rules exclude. Counts reach no sink until a scrubbed probe exists.
-            probe: { _ in },
-            paneViewedMailbox: viewedMailbox,
-            statusSink: { batch in
-                let began = ContinuousClock.now
-                statusAtom.apply(batch)
-                applyMeasurement.recordHeldDuration(began.duration(to: ContinuousClock.now))
-            },
-            statusApplyMeasurement: applyMeasurement,
-            statusApplyProbe: { snapshot in
-                traceRecorder?.recordDuration(
-                    .sessionsStatusApply, duration: snapshot.heldDuration,
-                    attributes: [
-                        "agentstudio.sessions.computed_count": .int(snapshot.counts.computed),
-                        "agentstudio.sessions.equal_suppressed_count": .int(snapshot.counts.suppressed),
-                        "agentstudio.sessions.coalesced_count": .int(snapshot.counts.coalesced),
-                        "agentstudio.sessions.batch_size": .int(snapshot.batchSize),
-                        "agentstudio.sessions.main_actor_total_ms": .double(
-                            AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.totalHeldDuration)),
-                        "agentstudio.sessions.main_actor_max_ms": .double(
-                            AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.maximumHeldDuration)),
-                    ])
-            }
+        let composition = SessionsPaneContextComposition.make(
+            inputs: .init(
+                datastore: datastore,
+                directory: atomStore.core.workspacePaneGraph.paneContextMembershipDirectory,
+                workspaceId: store.identityAtom.workspaceId,
+                clock: ContinuousClock(), wallNow: { Date() },
+                providerProfiles: appIPCSessionsProviderProfiles,
+                limits: .init(
+                    maximumPendingPerPane: AppPolicies.Sessions.maximumPendingIngestionPerPane,
+                    maximumPendingGlobal: AppPolicies.Sessions.maximumPendingIngestionGlobal
+                ),
+                // Ingestion statistics carry a raw pane UUID, which the OTLP scrub
+                // rules exclude. Counts reach no sink until a scrubbed probe exists.
+                paneViewedMailbox: viewedMailbox,
+                presentationAtom: atomStore.paneContextPresentation,
+                performanceTraceRecorder: traceRecorder,
+                ingestionProbe: { _ in },
+                statusSink: { batch in
+                    let began = ContinuousClock.now
+                    statusAtom.apply(batch)
+                    applyMeasurement.recordHeldDuration(began.duration(to: ContinuousClock.now))
+                },
+                statusApplyMeasurement: applyMeasurement,
+                statusApplyProbe: { snapshot in
+                    traceRecorder?.recordDuration(
+                        .sessionsStatusApply, duration: snapshot.heldDuration,
+                        attributes: [
+                            "agentstudio.sessions.computed_count": .int(snapshot.counts.computed),
+                            "agentstudio.sessions.equal_suppressed_count": .int(snapshot.counts.suppressed),
+                            "agentstudio.sessions.coalesced_count": .int(snapshot.counts.coalesced),
+                            "agentstudio.sessions.batch_size": .int(snapshot.batchSize),
+                            "agentstudio.sessions.main_actor_total_ms": .double(
+                                AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.totalHeldDuration)),
+                            "agentstudio.sessions.main_actor_max_ms": .double(
+                                AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.maximumHeldDuration)),
+                        ])
+                }, activityClock: paneActivityClock)
         )
         do {
-            _ = try await ingestion.prepareForLaunch(at: Date())
+            _ = try await composition.prepareForLaunch(at: Date())
         } catch {
-            await ingestion.finish()
             appLogger.warning(
                 """
                 Sessions ingestion skipped: launch preparation failed: \
@@ -358,17 +357,20 @@ extension AppDelegate {
             return nil
         }
         guard !Task.isCancelled else {
-            await ingestion.finish()
+            await composition.shutdown()
             return nil
         }
-        appIPCSessionsIngestion = ingestion
-        return ingestion
+        workspaceSurfaceCoordinator?.sessionsPaneViewedMailbox = viewedMailbox
+        workspaceSurfaceCoordinator?.paneContextService = composition.paneContextService
+        appIPCSessionsPaneContextComposition = composition
+        return composition
     }
 
-    private func finishAppIPCSessionsIngestion() async {
-        guard let ingestion = appIPCSessionsIngestion else { return }
-        appIPCSessionsIngestion = nil
-        await ingestion.finish()
+    private func finishAppIPCSessionsPaneContext() async {
+        guard let composition = appIPCSessionsPaneContextComposition else { return }
+        appIPCSessionsPaneContextComposition = nil
+        workspaceSurfaceCoordinator?.paneContextService = nil
+        await composition.shutdown()
     }
 
     /// Ends IPC ingress and nothing else. No durable write happens here and
@@ -413,14 +415,14 @@ extension AppDelegate {
         await spoolDrainTask?.value
         guard let server = appIPCServer else {
             appIPCPrincipalRegistry?.shutdown()
-            await finishAppIPCSessionsIngestion()
+            await finishAppIPCSessionsPaneContext()
             appLogger.info("App IPC shutdown completed without a published server or durable drain")
             return
         }
         await server.joinConnectionHandlers()
         let result = await server.drainCredentialPersistence()
         appIPCServer = nil
-        await finishAppIPCSessionsIngestion()
+        await finishAppIPCSessionsPaneContext()
         if result.failedOperationCount > 0 {
             appLogger.warning(
                 "App IPC credential persistence drain completed with \(result.failedOperationCount) failures"
@@ -429,7 +431,7 @@ extension AppDelegate {
     }
 
     private func makeAppIPCServer(
-        sessionsIngestion: SessionsIngestion
+        sessionsComposition: SessionsPaneContextComposition
     ) async throws -> (server: AgentStudioAppIPCServer, socketURL: URL)? {
         let runtimeId = appIPCRuntimeID!
         let accessMode = Self.appIPCAccessMode()
@@ -478,18 +480,13 @@ extension AppDelegate {
                 repoPrefs: atomStore.repoExplorerSidebarPrefs,
                 sidebarState: atomStore.core.workspaceSidebarState
             ),
-            sessionsPort: AgentStudioIPCSessionsAdapter(
-                ingestion: sessionsIngestion,
-                providerRegistry: SessionsProviderAdapterRegistry(
-                    profiles: appIPCSessionsProviderProfiles
-                ),
-                activityClock: paneActivityClock
-            ),
+            sessionsPort: sessionsComposition.liveSessionsAdapter,
             permissionApprovalPort: AgentStudioIPCHumanApprovalPort(),
             ownPaneScopePort: WorkspaceOwnPaneScopePort(
                 workspaceStore: store, performanceTraceRecorder: performanceTraceRecorder),
             agentAuthorizationTelemetry: AgentStudioIPCAgentAuthorizationTelemetry(
-                performanceTraceRecorder: performanceTraceRecorder)
+                performanceTraceRecorder: performanceTraceRecorder),
+            paneContextPort: sessionsComposition.paneContextIPCAdapter
         )
         let eventBroker = IPCEventBroker()
         guard
