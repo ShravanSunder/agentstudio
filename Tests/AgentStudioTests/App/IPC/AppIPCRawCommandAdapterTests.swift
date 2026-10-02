@@ -28,7 +28,7 @@ struct AppIPCRawCommandAdapterTests {
         let authorizations = await probe.requests
         #expect(authorizations.count == 1)
         #expect(authorizations.first?.target == .workspace(harness.workspaceStore.identityAtom.workspaceId))
-        #expect(authorizations.first?.additionalScopes.contains { $0.privilege == .layoutMutate } == true)
+        #expect(authorizations.first?.additionalScopes.contains { $0.privilege == .sidebarStateMutate } == true)
     }
 
     @Test(
