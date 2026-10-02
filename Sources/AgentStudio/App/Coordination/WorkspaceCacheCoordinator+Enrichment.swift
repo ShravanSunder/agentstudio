@@ -123,7 +123,8 @@ extension WorkspaceCacheCoordinator {
         }
     }
 
-    private func handleForgeEnrichment(
+    /// Internal for @testable proof that cache application does not depend on receipt bookkeeping.
+    func handleForgeEnrichment(
         _ forgeEvent: ForgeEvent,
         envelopeSequence: UInt64,
         observationLifetime: RepositoryFactObservationLifetime,
@@ -131,7 +132,6 @@ extension WorkspaceCacheCoordinator {
     ) {
         switch forgeEvent {
         case .pullRequestRepositoryProjectionChanged(let repoId, let projection, _):
-            guard let scope else { return }
             applyCoalescedRepositoryProjection(
                 for: repoId,
                 pending: PendingRepositoryProjection(

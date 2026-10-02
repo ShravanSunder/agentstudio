@@ -24,7 +24,7 @@ final class WorkspaceCacheCoordinator {
     }
 
     struct PendingRepositoryProjection: Sendable {
-        var scope: WorkspaceCacheApplicationScope
+        var scope: WorkspaceCacheApplicationScope?
         let envelopeSequence: UInt64
         let observationLifetime: RepositoryFactObservationLifetime
         let projection: PullRequestRepositoryProjection
@@ -465,14 +465,14 @@ final class WorkspaceCacheCoordinator {
                 pending.observationLifetime, repositoryID: repoId, worktreeID: nil
             )
         else {
-            factSink?(pending.scope, .ignored)
+            if let scope = pending.scope { factSink?(scope, .ignored) }
             return
         }
         guard
             pending.envelopeSequence
                 > (lastAppliedForgeProjectionSequenceByRepoId[repoId] ?? 0)
         else {
-            factSink?(pending.scope, .ignored)
+            if let scope = pending.scope { factSink?(scope, .ignored) }
             return
         }
         lastAppliedForgeProjectionSequenceByRepoId[repoId] = pending.envelopeSequence
@@ -480,7 +480,7 @@ final class WorkspaceCacheCoordinator {
             pending.projection,
             forRepository: repoId
         )
-        factSink?(pending.scope, .applied)
+        if let scope = pending.scope { factSink?(scope, .applied) }
     }
 
     private func handleWorkspaceActivity(_ envelope: SystemEnvelope) {

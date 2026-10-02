@@ -10,6 +10,35 @@ import Testing
 @MainActor
 @Suite("Workspace cache apply governor", .serialized)
 struct WorkspaceCacheCoordinatorApplyGovernorTests {
+    @Test("repository projection applies without receipt scope", arguments: [false, true])
+    func repositoryProjectionAppliesWithoutReceiptScope(installSink: Bool) throws {
+        let workspaceStore = WorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/cache-without-receipt-scope"))
+        let lifetime = try #require(workspaceStore.repositoryTopologyAtom.repositoryObservationLifetimes[repo.id])
+        let key = try #require(RepoBranchKey(repoId: repo.id, branch: "main"))
+        let expected = PullRequestFacts(openCount: 2, exactOpenURL: nil)
+        let sink: WorkspaceCacheCoordinatorFactSink?
+        if installSink {
+            sink = { _, _ in Issue.record("A missing receipt scope must not emit a fact") }
+        } else {
+            sink = nil
+        }
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(), workspaceStore: workspaceStore, repoCache: repoCache,
+            scopeSyncHandler: { _ in }, factSink: sink)
+
+        coordinator.handleForgeEnrichment(
+            .pullRequestRepositoryProjectionChanged(
+                repoId: repo.id, projection: .stable(.ready(confirmedFactsByBranch: ["main": expected])),
+                invalidatedBranches: []),
+            envelopeSequence: 1, observationLifetime: .repository(lifetime), scope: nil)
+
+        #expect(repoCache.pullRequestFacts(for: key) == expected)
+        #expect(repoCache.cacheRevision == 1)
+        #expect(!repoCache.isPullRequestLoading(forRepository: repo.id))
+    }
+
     @Test("source delivery does not prove held cache application")
     func sourceDeliveryDoesNotProveCacheApplication() async throws {
         let bus = EventBus<RuntimeEnvelope>()
