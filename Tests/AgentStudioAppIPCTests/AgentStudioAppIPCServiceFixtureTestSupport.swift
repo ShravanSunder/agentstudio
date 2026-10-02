@@ -120,7 +120,7 @@ struct LiveServerFixture: Sendable {
         commandComposition: IPCCommandMethodComposition? = nil,
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
-        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,
+        canonicalPaneMembership: (@Sendable (UUID, UUID) -> Bool)? = nil,
         ownPaneScopes: [AppIPCOwnPaneScope] = [],
         additionalRegistrations: [AnyAppIPCMethodRegistration] = [],
         eventBroker: IPCEventBroker = IPCEventBroker(),

@@ -41,7 +41,7 @@ private final class PaneContextPresentationBatchRecorder: Sendable {
 final class PaneContextPresentationServiceFixture: Sendable {
     let storage: PaneContextServiceFixture
     let directory = PaneContextMembershipDirectory()
-    let mailbox = PaneContextPublicationMailbox()
+    let mailbox: PaneContextPublicationMailbox
     private let batches = PaneContextPresentationBatchRecorder()
     let lane: PaneContextPublicationLane
     let service: PaneContextService
@@ -49,6 +49,8 @@ final class PaneContextPresentationServiceFixture: Sendable {
     init() throws {
         let storage = try PaneContextServiceFixture()
         self.storage = storage
+        let directory = self.directory
+        mailbox = PaneContextPublicationMailbox(isPresent: { directory.sources(for: $0) != nil })
         directory.install(
             .init(
                 workspaceId: UUIDv7.generate(), membershipRevision: 1,

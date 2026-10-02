@@ -2,6 +2,11 @@ import AgentStudioInfrastructure
 import Foundation
 import GRDB
 
+private struct PaneContextLifecycleCommit: Sendable {
+    let settlements: [(PaneContextMessageKey, PaneContextSettlementCommit)]
+    let affectedSources: Set<PaneId>
+}
+
 extension PaneContextService {
     package nonisolated func retire(_ paneIds: [PaneId]) {
         let changed = retirementMailbox.state.withLock { mailbox in
@@ -10,7 +15,10 @@ extension PaneContextService {
             mailbox.retired.formUnion(paneIds)
             return !paneIds.isEmpty
         }
-        if changed { retirementWake.yield(()) }
+        if changed {
+            for paneId in paneIds { presentationLane?.mailbox.retire(paneId) }
+            retirementWake.yield(())
+        }
     }
 
     func drainRetirements() async throws {
@@ -49,6 +57,7 @@ extension PaneContextService {
             throw error
         }
         if retirementCommitGeneration == generation { retirementCommit = nil }
+        await presentationLane?.publishPending()
         if retirementMailbox.state.withLock({ !$0.pending.isEmpty }) { try await drainRetirements() }
     }
 
@@ -105,7 +114,8 @@ extension PaneContextService {
         guard !isStopping else { return }
         let now = wallNow
         do {
-            let commits = try await sqliteAccess.write { database in
+            let commit = try await sqliteAccess.write { database in
+                let before = try PaneContextStorage.presentationRevisions(database)
                 let instant = now()
                 let rows = try Row.fetchAll(
                     database,
@@ -125,9 +135,12 @@ extension PaneContextService {
                 try PaneContextStorage.expireLines(database, now: instant)
                 try PaneContextStorage.hideSettled(database, now: instant)
                 try PaneContextStorage.purgeRetired(database, now: instant)
-                return commits
+                return PaneContextLifecycleCommit(
+                    settlements: commits,
+                    affectedSources: try PaneContextStorage.changedPresentationSources(database, since: before))
             }
-            for (key, commit) in commits { await acceptSettlement(commit, key: key) }
+            for (key, settlement) in commit.settlements { await acceptSettlement(settlement, key: key) }
+            await publishAffectedSources(commit.affectedSources)
             await refreshDeadline()
         } catch {
             // The next demand retries; no outcome is published without a commit.
@@ -138,7 +151,8 @@ extension PaneContextService {
         do {
             try await ensureOpen()
             let now = wallNow
-            let commits = try await sqliteAccess.write { database in
+            let commit = try await sqliteAccess.write { database in
+                let before = try PaneContextStorage.presentationRevisions(database)
                 let lines = try Row.fetchAll(
                     database,
                     sql:
@@ -169,7 +183,7 @@ extension PaneContextService {
                     sql:
                         "SELECT pane_id, message_id FROM pane_request WHERE sender_binding_generation = ? AND state = 'open'",
                     arguments: [bindingGenerationId.uuidString])
-                return try asks.map { row in
+                let settlements = try asks.map { row in
                     let key = PaneContextMessageKey(
                         paneId: PaneId(existingUUID: try PaneContextStorage.uuid(row, "pane_id")),
                         messageId: AgentMessageId(existingUUID: try PaneContextStorage.uuid(row, "message_id")))
@@ -179,9 +193,13 @@ extension PaneContextService {
                             database, paneId: key.paneId, id: key.messageId, cause: .sessionEnded, now: now())
                     )
                 }
+                return PaneContextLifecycleCommit(
+                    settlements: settlements,
+                    affectedSources: try PaneContextStorage.changedPresentationSources(database, since: before))
             }
-            for (key, commit) in commits { await acceptSettlement(commit, key: key) }
+            for (key, settlement) in commit.settlements { await acceptSettlement(settlement, key: key) }
             await agentLineSink(nil, bindingGenerationId)
+            await publishAffectedSources(commit.affectedSources)
             await refreshDeadline()
         } catch {
             // Persistent state is unchanged on a failed transaction.
@@ -191,6 +209,12 @@ extension PaneContextService {
     package func stop() async {
         guard !isStopping else { return }
         isStopping = true
+        membershipDrain?.cancel()
+        membershipReconcile?.cancel()
+        await membershipReconcile?.value
+        await membershipDrain?.value
+        membershipDrain = nil
+        await presentationLane?.shutdown()
         retirementMailbox.state.withLock { $0.accepting = false }
         retirementWake.finish()
         retirementDrain?.cancel()

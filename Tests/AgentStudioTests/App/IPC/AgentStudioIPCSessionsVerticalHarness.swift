@@ -56,7 +56,7 @@ struct SessionsVerticalHarness {
         debugCredentialEscrowURL: URL? = nil,
         installActivityClock: Bool = false
     ) async throws -> Self {
-        let (commandHarness, datastore) = try makeCanonicalIPCWorkspaceCommandHarness()
+        let (commandHarness, datastore) = try await makeCanonicalIPCWorkspaceCommandHarness()
         let appDelegate = AppDelegate()
         var createdRootDirectory: URL?
         do {
@@ -171,7 +171,7 @@ struct SessionsVerticalHarness {
         }
     }
 
-    @concurrent nonisolated private static func credentialVerifier(for token: String) async -> Data {
+    @concurrent nonisolated static func credentialVerifier(for token: String) async -> Data {
         Data(SHA256.hash(data: Data(token.utf8)))
     }
 

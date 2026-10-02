@@ -1,24 +1,24 @@
 import AgentStudioCore
 
-/// RED shell of the App-owned off-main UI seam.
+/// The App-owned seam preserves typed service results without a UI hop.
 struct PaneContextUIAdapter: PaneContextDetailReading, PaneContextPersonActing {
     private let service: PaneContextService
 
     init(service: PaneContextService) { self.service = service }
 
     func readDetail(_ request: PaneContextReadRequest) async -> PaneContextReadResult {
-        .unavailable(.databaseUnavailable)
+        await service.readDetail(request)
     }
     func answer(_ request: AnswerAskRequest) async -> AnswerAskResult {
-        .unavailable(.databaseUnavailable)
+        await service.answer(request)
     }
     func dismiss(messageId: AgentMessageId, paneId: PaneId) async -> DismissResult {
-        .unavailable(.databaseUnavailable)
+        await service.dismiss(messageId: messageId, paneId: paneId)
     }
     func markRead(messageId: AgentMessageId, paneId: PaneId) async -> MarkReadResult {
-        .unavailable(.databaseUnavailable)
+        await service.markRead(messageId: messageId, paneId: paneId)
     }
     func runAction(_ request: MessageActionRequest) async -> MessageActionResult {
-        .unavailable(.databaseUnavailable)
+        await service.runAction(request)
     }
 }

@@ -30,7 +30,7 @@ extension PaneContextService {
             let admission = scopeAdmission()
             let binding = currentBindingGeneration
             let now = wallNow
-            return try await sqliteAccess.write { database in
+            let result: PaneOrderedWriteResult = try await sqliteAccess.write { database in
                 guard try admission(request.paneId, database) else { return .refused(.paneGone) }
                 if case .session(_, _, let generation) = request.writer,
                     try binding(request.paneId, database) != generation
@@ -46,6 +46,8 @@ extension PaneContextService {
                 try PaneContextStorage.writeTitle(request, database: database, now: now())
                 return .applied
             }
+            if result == .applied { await publishAffectedSources([request.paneId]) }
+            return result
         } catch { return .unavailable(storageFailure(error, writing: true)) }
     }
 
@@ -77,6 +79,7 @@ extension PaneContextService {
                     await agentLineSink(request.line?.work, generation)
                 }
                 await refreshDeadline()
+                await publishAffectedSources([request.paneId])
             }
             return result
         } catch { return .unavailable(storageFailure(error, writing: true)) }

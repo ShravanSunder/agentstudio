@@ -12,10 +12,10 @@ final class PaneContextMembershipGraphFixture {
     let identity: WorkspaceIdentityAtom
     let seed: Pane
 
-    init() throws {
+    init(initialPane: Pane? = nil) throws {
         graph = WorkspacePaneGraphAtom(paneContextMembershipDirectory: directory)
         identity = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
-        seed = Self.makePane(title: "Seed")
+        seed = initialPane ?? Self.makePane(title: "Seed")
         let arrangement = PaneArrangement(
             id: UUIDv7.generate(), name: "Default", isDefault: true, layout: Layout(paneId: seed.id),
             activePaneId: seed.id)
@@ -67,9 +67,9 @@ final class PaneContextMembershipGraphFixture {
                 metadata: PaneMetadata(launchDirectory: URL(filePath: "/tmp/pane-context-drawer"), title: "Drawer")))
     }
 
-    static func makePane(title: String) -> Pane {
+    static func makePane(title: String, paneId: UUID = UUIDv7.generate()) -> Pane {
         Pane(
-            id: UUIDv7.generate(),
+            id: paneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(launchDirectory: URL(filePath: "/tmp/pane-context-membership"), title: title))
     }

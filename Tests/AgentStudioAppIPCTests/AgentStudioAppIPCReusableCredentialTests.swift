@@ -444,7 +444,7 @@ private struct ReusableCredentialFixture {
     nonisolated(nonsending) func withServer<Result>(
         credentialResolver: any AgentStudioIPCCredentialResolving,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort,
-        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,
+        canonicalPaneMembership: (@Sendable (UUID, UUID) -> Bool)? = nil,
         releaseHeldWork: @Sendable () async -> Void = {},
         body: (LiveServerFixture) async throws -> Result
     ) async throws -> Result {
