@@ -168,6 +168,25 @@ extension E2ESerializedTests.ZmxE2ETests {
         return wrapperPath
     }
 
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): the exiting sibling of
+    /// `makeZmxHoldWrapperScript` -- holds at the identical FIFO rendezvous,
+    /// then exits instead of ever exec-ing into real zmx. No socket, no
+    /// daemon, no `session "<id>" created` line can ever be produced by
+    /// this process; it proves `waitUntilSessionSettled`'s launcher-exit
+    /// race, not the "created" line side of it.
+    private func makeExitingWithoutAttachingWrapperScript(holdFIFOPath: String) throws -> String {
+        let wrapperPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zmx-exit-wrapper-\(UUIDv7.generate().uuidString)").path
+        let scriptContent = """
+            #!/bin/sh
+            cat \(ZmxBackend.shellEscape(holdFIFOPath)) >/dev/null 2>&1
+            exit 1
+            """
+        try scriptContent.write(toFile: wrapperPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperPath)
+        return wrapperPath
+    }
+
     /// S3 zmx-e2e list: "zmx held before socket creation while the mount
     /// completes -> no failure, then a normal handoff." `plan.zmxExecutable`
     /// is a wrapper blocked on its own FIFO, so the real zmx binary never
@@ -229,6 +248,59 @@ extension E2ESerializedTests.ZmxE2ETests {
 
             let settledOutcome = await outcome
             #expect(settledOutcome == .handedOff)
+        }
+    }
+
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): the missing coverage
+    /// the whole fix exists for -- a launcher that exits before ever
+    /// printing its own `session "<id>" created` line used to hang
+    /// `waitUntilSessionSettled` forever (R1 gate 3 on 4b71cd1a5); it must
+    /// now surface as `SessionSettlementError.launcherExitedBeforeSessionCreated`
+    /// instead. Same deterministic FIFO rendezvous as the test above --
+    /// held, then released -- except the wrapper `exit 1`s instead of ever
+    /// exec-ing into real zmx, so no socket, no daemon and no "created"
+    /// line can ever exist for this session. Exercises `spawnZmxSession`'s
+    /// own waiting path directly, through `ZmxTestHarness` -- no need for a
+    /// `TerminalColdRestorePlan` since this is proving the launcher-exit
+    /// race itself, not a cold-restore scenario.
+    @Test("a launcher that exits before ever printing its own created line is a typed failure, not a hang")
+    func aLauncherExitingBeforePrintingCreatedIsATypedFailureNotAHang() async throws {
+        try await withRealBackend { harness, _ in
+            let sessionID = ZmxSessionID.generateUUIDv7()
+            let holdFIFOPath = try makeFIFOPath()
+            defer { try? FileManager.default.removeItem(atPath: holdFIFOPath) }
+            let wrapperPath = try makeExitingWithoutAttachingWrapperScript(holdFIFOPath: holdFIFOPath)
+            defer { try? FileManager.default.removeItem(atPath: wrapperPath) }
+
+            async let spawnAttempt = harness.spawnZmxSession(
+                zmxPath: wrapperPath, sessionId: sessionID.rawValue, commandArgs: [])
+
+            // Deterministic proof the wrapper has reached, and is blocked
+            // at, its own hold point -- identical rendezvous to the held
+            // test above.
+            let writeDescriptor = try await openFIFOForWriting(atPath: holdFIFOPath)
+            #expect(
+                !FileManager.default.fileExists(atPath: "\(harness.zmxDir)/\(sessionID.rawValue)"),
+                "no socket can exist yet: this wrapper never reaches real zmx")
+
+            // Release: the wrapper exits instead of ever exec-ing into zmx.
+            try await closeFIFOWriteDescriptor(writeDescriptor)
+
+            do {
+                _ = try await spawnAttempt
+                Issue.record("expected the launcher's exit to surface a typed failure instead of settling")
+            } catch ZmxTestHarness.SessionSettlementError.launcherExitedBeforeSessionCreated(let failedSessionId) {
+                #expect(failedSessionId == sessionID.rawValue)
+            } catch {
+                Issue.record("expected launcherExitedBeforeSessionCreated, got \(error)")
+            }
+
+            // `withRealBackend`'s own cleanup assertion below this closure
+            // is the proof that matters here: it calls `terminateSpawnedProcesses`
+            // unconditionally, which both reaps this already-exited wrapper
+            // and tears down its stdout reader -- a leaked process or a
+            // reader left spinning would show up as a cleanup failure, not
+            // as silence.
         }
     }
 

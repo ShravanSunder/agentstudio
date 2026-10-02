@@ -630,7 +630,7 @@ extension E2ESerializedTests {
                 // ever exists to wait for -- the default, settlement-waiting
                 // spawnColdRestoreSession would just time out on the socket
                 // wait instead of exercising this test's own intent.
-                let process = try harness.spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
+                let (process, _) = try harness.spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
                 _ = try await awaitAlreadyRunningProcessExit(process)
                 #expect(process.terminationStatus != 0, "the missing zmxExecutable must genuinely fail to run")
                 await observer.reportAttachClientExited()

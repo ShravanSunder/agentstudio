@@ -10,12 +10,15 @@ import Foundation
 /// `ZmxTestHarness`'s session-settlement waits, split into their own file
 /// (the repo's line-length ceiling, same precedent as
 /// `ZmxE2ETests+RealEventWaits.swift`/`ZmxE2ETests+ForcedTiming.swift`):
-/// `waitForSessionSocket`/`awaitSessionSocketEvent` (the socket-appearance
-/// wait, now racing against the spawning launcher's own exit) and
-/// `waitUntilSessionSettled`/`resolveSettledDiscovery`/`resolveViaSetsidWatch`
-/// (the identity-discovery wait that follows it). Everything else --
-/// construction, environment, spawning, cleanup -- stays in
-/// `ZmxTestHarness.swift`.
+/// `waitForSessionSocket`/`awaitSessionSocketEvent` (the general
+/// socket-appearance/disappearance watch every test body also calls
+/// directly) and `waitUntilSessionSettled`/`awaitSessionCreatedLineOrLauncherExit`/
+/// `resolveSettledDiscovery`/`resolveViaSetsidWatch` (the settlement path
+/// `spawnZmxSession`/`spawnColdRestoreSession` use: a fast-path reconnect
+/// check, then -- only for a genuine fresh create -- the launcher's own
+/// "created" line raced against it exiting first, then exactly one
+/// identity-discovery check). Everything else -- construction,
+/// environment, spawning, cleanup -- stays in `ZmxTestHarness.swift`.
 extension ZmxTestHarness {
     /// F7 residual (advisor review round 2, Lead 2026-10-02): `open(2)`
     /// failing on `zmxDir` used to fall back to a deadline poll -- the
@@ -78,35 +81,95 @@ extension ZmxTestHarness {
     /// `private` so `ZmxE2ETests+RealEventWaits.swift`'s
     /// `awaitSessionIdentityOnRealEvent` can reuse this exact settle wait
     /// for its own transient-connect-failure case, instead of its own
-    /// polling loop -- the one architecture-debt-ledger-tracked polling
-    /// instance in this file stays the only one; no new retry site.
+    /// polling loop.
     ///
-    /// R1 gate 3 (Lead 2026-10-02): `zmxLauncherProcessID`, when known, races
-    /// the socket wait below against that launcher's exit; `nil` (default)
-    /// leaves every other caller, `RealEventWaits`' retry-reuse included,
-    /// unchanged.
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): the fast path stays
+    /// first and is unchanged -- a socket already on disk means some
+    /// earlier launcher already created this session, so this call is a
+    /// reconnect, not a creation, and there is no "created" line of its
+    /// own to ever wait for (`aLiveSessionReconnectedThroughTheFallbackScriptStaysUnchanged`,
+    /// ZmxE2ETests.swift, is exactly this case). Only when the socket does
+    /// not exist yet does this race `sessionCreatedStep` (armed by
+    /// `beginDrainingStandardOutput` at spawn time) against
+    /// `zmxLauncherProcessID` exiting first, inline below rather than
+    /// through a separate `await…`-named helper -- `TestWaitHelperReturnsObservationRule`
+    /// requires exactly this: a wait with nothing of its own to return folds
+    /// into the one function whose return value (`ZmxSessionIdentity`) the
+    /// caller actually asserts on. Both `nil` (the default) means there is
+    /// no launcher of this call's own to wait on at all, matching every
+    /// caller that reuses this settle wait on an already-existing session
+    /// (`RealEventWaits`' retry case), which the fast path above already
+    /// covers in the ordinary case.
     @discardableResult
     func waitUntilSessionSettled(
         sessionId: String,
-        zmxLauncherProcessID: Int32? = nil
+        zmxLauncherProcessID: Int32? = nil,
+        sessionCreatedStep: HeldStep<Result<Void, any Error>>? = nil
     ) async throws -> ZmxSessionIdentity {
-        guard
-            try await waitForSessionSocket(
-                sessionId: sessionId, exists: true, racingAgainstExitOf: zmxLauncherProcessID
-            )
-        else {
-            throw SessionSettlementError.socketNeverAppeared(sessionId: sessionId)
-        }
         let socketPath = sessionSocketPath(for: sessionId)
+        if !FileManager.default.fileExists(atPath: socketPath) {
+            guard let zmxLauncherProcessID, let sessionCreatedStep else {
+                throw SessionSettlementError.socketNeverAppeared(sessionId: sessionId)
+            }
+            // Register-then-check, exactly like `resolveViaSetsidWatch`
+            // below and bfe1253ea/6c718ad85's identical fix in
+            // `awaitSessionSocketEvent`: the exit event is the fact once it
+            // fires -- not the launcher's reaped status, which races
+            // Foundation's own `Process` reaping it on an unrelated
+            // handler. `kill(pid, 0)` ESRCH is only the mandatory initial
+            // check's own fallback, for a launcher already gone (and
+            // possibly already reaped) before this watch registered to see
+            // a real exit event for it.
+            let source = DispatchSource.makeProcessSource(
+                identifier: zmxLauncherProcessID, eventMask: [.exit], queue: DispatchQueue.global(qos: .userInitiated)
+            )
+            func launcherConfirmedGone(exitFired: Bool) -> Bool {
+                if exitFired { return true }
+                return kill(zmxLauncherProcessID, 0) != 0 && errno == ESRCH
+            }
+            func checkAndSettleIfLauncherGone(exitFired: Bool) {
+                guard launcherConfirmedGone(exitFired: exitFired) else { return }
+                source.cancel()
+                try? sessionCreatedStep.arriveBlocking(
+                    .failure(SessionSettlementError.launcherExitedBeforeSessionCreated(sessionId: sessionId)))
+            }
+            source.setEventHandler { checkAndSettleIfLauncherGone(exitFired: source.data.contains(.exit)) }
+            source.setCancelHandler {}
+            source.setRegistrationHandler { checkAndSettleIfLauncherGone(exitFired: false) }
+            source.resume()
+            defer { source.cancel() }
+
+            let outcome = try await sessionCreatedStep.firstArrival()
+            sessionCreatedStep.release()
+            try outcome.get()
+        }
         let bootID = try await WorkspaceUndoJournalClock.current().bootID
-        return try await resolveSettledDiscovery(socketPath: socketPath, bootID: bootID, retryIndex: 0)
+        return try await resolveSettledDiscovery(socketPath: socketPath, bootID: bootID)
     }
 
-    private func resolveSettledDiscovery(
-        socketPath: String,
-        bootID: String,
-        retryIndex: Int
-    ) async throws -> ZmxSessionIdentity {
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): no retry, no sleep, no
+    /// backoff. `waitUntilSessionSettled`'s own caller already proved the
+    /// daemon listening by the time this runs -- either the socket already
+    /// existed (a reconnect: `createSocket` runs before any fork,
+    /// vendor/zmx/src/loop.zig:741) or this call's own launcher printed its
+    /// "session created" line, which cannot happen before `createSocket`'s
+    /// `bind`+`listen` (socket.zig:113-114, loop.zig:763-777) already
+    /// succeeded. `.connectionRefused` (the bind-before-listen gap this
+    /// file's own prior tolerance was written for) is therefore
+    /// structurally impossible by the time this runs. Every other transient
+    /// failure (`.timeout`, `.unavailable`, `.processUnverifiable`) is not
+    /// retried here either, matching production's own policy exactly:
+    /// `ColdStartObserver.attemptDiscoveryConnect` (ColdStartObserver.swift:280-315)
+    /// only ever retries `.connectionRefused` -- every other failure falls
+    /// straight through to `discoverySettled(identity: nil, ...)`, no
+    /// retry. A red run here is diagnosed at its owner, the same as any
+    /// other suite failure; no budget or retry count is added just to make
+    /// one pass, and the zmx lane is opt-in, not a PR gate. If
+    /// `test_orphanDiscovery_findsUntrackedSession` (two concurrent daemon
+    /// spawns, ZmxE2ETests.swift) ever reproduces the `.timeout` this
+    /// file's deleted retry once tolerated, that is evidence for a
+    /// production deadline decision, not a reason to retry here.
+    private func resolveSettledDiscovery(socketPath: String, bootID: String) async throws -> ZmxSessionIdentity {
         switch ZmxSessionControl.observeForDiscovery(path: socketPath, bootID: bootID) {
         case .identity(let identity):
             return identity
@@ -114,59 +177,8 @@ extension ZmxTestHarness {
             return try await resolveViaSetsidWatch(terminalPID: terminalPID, socketPath: socketPath, bootID: bootID)
         case .terminalLeaderGone:
             throw SessionSettlementError.terminalLeaderConfirmedGone
-        case .failure(let failure) where Self.isTransientDuringSettlement(failure):
-            // Amended 2026-09-30 against evidence, not guessed: a fresh
-            // two-daemon spawn ("orphan discovery finds untracked session")
-            // hit .timeout on its first full zmx-e2e run here. This wait
-            // runs right after the socket first appears -- the same early,
-            // racy window `waitForObservedSessionIdentity` below already
-            // tolerates .unavailable/.connectionRefused/.processUnverifiable
-            // /.timeout on for the identical reason ("a busy startup may not
-            // answer within one bounded request"). ColdStartObserver's own
-            // attemptDiscoveryConnect only retries .connectionRefused
-            // because its directory-watch trigger already gives the daemon
-            // more time before the first connect; this harness wait has no
-            // such head start, so it matches the broader, already-proven
-            // tolerance instead.
-            //
-            // F7 (review round 1): exhausting the backoff schedule must not
-            // throw -- that would fail this wait on elapsed time alone,
-            // which the production discoverer
-            // (`ColdStartObserver.attemptDiscoveryConnect`) never does for
-            // this same failure: exhausting its own identical schedule
-            // just leaves the window "discovering," resolved only by a
-            // later real fact. This harness has no later event source to
-            // lean on for this specific transient case, so past the
-            // schedule's own last entry it keeps retrying at that entry's
-            // cadence -- bounded only by the suite's runner-owned hang
-            // bound, never by a time budget of its own.
-            //
-            // R2-4 item 1 (review round 2, Lead 2026-10-01): `try?`
-            // swallowed every throw from `clock.sleep`, cancellation
-            // included -- the suite's own hang bound relies on task
-            // cancellation to end an owned wait, and this loop kept
-            // retrying through it regardless. `try await` instead: this
-            // function is already `async throws`, so a thrown
-            // `CancellationError` (or any other) now ends the retry here
-            // and propagates to `waitUntilSessionSettled`'s own caller
-            // exactly as every other failure case in this `switch` already
-            // does, rather than retrying past it.
-            let delaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
-            let delayIndex = min(retryIndex, delaysMilliseconds.count - 1)
-            try await clock.sleep(for: .milliseconds(delaysMilliseconds[delayIndex]))
-            return try await resolveSettledDiscovery(socketPath: socketPath, bootID: bootID, retryIndex: retryIndex + 1)
         case .failure(let failure):
             throw failure
-        }
-    }
-
-    private static func isTransientDuringSettlement(_ failure: ZmxSessionControlFailure) -> Bool {
-        switch failure {
-        case .connectionRefused, .unavailable, .processUnverifiable, .timeout:
-            return true
-        case .invalidIdentity, .invalidSocketPath, .invalidResponse, .identityMismatch,
-            .unexpectedProcessParent, .unexpectedProcessGroup, .nativeAttachmentPresent, .awaitingProcessExit:
-            return false
         }
     }
 

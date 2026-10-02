@@ -1,6 +1,7 @@
 import AgentStudioTestHarness
 import Darwin
 import Foundation
+import Synchronization
 
 @testable import AgentStudio
 @testable import AgentStudioCore
@@ -44,6 +45,15 @@ final class ZmxTestHarness: @unchecked Sendable {
         /// directory becomes openable. Carries the exact `errno` and path
         /// so a real failure here is diagnosable, not a silent timeout.
         case sessionDirectoryUnwatchable(path: String, errno: Int32)
+        /// R1 gate 4, F7 fix (Lead decision 2026-10-02): the launcher
+        /// `spawnZmxSession`/`spawnColdRestoreSession` just started exited
+        /// (or was confirmed already gone) before ever printing its own
+        /// `session "<id>" created` line (vendor/zmx/src/loop.zig:773) --
+        /// distinct from `.socketNeverAppeared`, which named the observed
+        /// absence without saying why. A launcher that exits this early
+        /// never got as far as `Daemon.run`'s `createSocket` call at all,
+        /// so there is nothing left to watch for.
+        case launcherExitedBeforeSessionCreated(sessionId: String)
 
         var errorDescription: String? {
             switch self {
@@ -55,6 +65,8 @@ final class ZmxTestHarness: @unchecked Sendable {
                 return "terminal leader was positively confirmed dead while waiting for settlement"
             case .sessionDirectoryUnwatchable(let path, let errno):
                 return "open(2) on zmx session directory \(path) failed with errno \(errno); no vnode source to watch"
+            case .launcherExitedBeforeSessionCreated(let sessionId):
+                return "zmx launcher for session \(sessionId) exited before printing its own \"created\" line"
             }
         }
     }
@@ -62,6 +74,12 @@ final class ZmxTestHarness: @unchecked Sendable {
     private struct SpawnedProcess {
         let process: Process
         let processID: pid_t
+        /// Non-`nil` only for a process this harness itself gave a `Pipe`
+        /// (`spawnZmxSession`/`spawnShellCommandWithoutWaitingForSettlement`/
+        /// `spawnShellCommandCapturingOutput`) -- `terminateSpawnedProcesses`
+        /// stops draining it, from the owning teardown point, once the kill
+        /// signal above it has already been sent.
+        let standardOutputPipe: Pipe?
     }
 
     let zmxDir: String
@@ -73,9 +91,7 @@ final class ZmxTestHarness: @unchecked Sendable {
     let scratchHomeDirectory: String
     private let executor: any ProcessExecutor
     private var spawnedProcesses: [SpawnedProcess] = []
-    /// Not `private`: `ZmxTestHarness+SessionSettlement.swift`'s
-    /// `resolveSettledDiscovery` reads this across the file split.
-    let clock = ContinuousClock()
+    private let clock = ContinuousClock()
 
     init() async {
         // UUIDv7's prefix is timestamp data shared by nearby creations. Use its random
@@ -372,6 +388,13 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// settled -- see `waitUntilSessionSettled`). Every caller that needs a
     /// real, inspectable session gets one; no sleeps, no retry-until loop.
     ///
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): the launcher's own
+    /// stdout is piped and drained from the moment it starts (see
+    /// `beginDrainingStandardOutput`), so `waitUntilSessionSettled` can
+    /// race this exact launcher's `session "<id>" created` line against it
+    /// exiting first, instead of watching `zmxDir` for a file that a
+    /// reconnecting (not creating) launcher would never cause to appear.
+    ///
     /// The returned process must be awaited by callers through `cleanup()`.
     func spawnZmxSession(
         zmxPath: String,
@@ -381,20 +404,26 @@ final class ZmxTestHarness: @unchecked Sendable {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: zmxPath)
         process.arguments = ["attach", sessionId] + commandArgs
-        process.standardOutput = FileHandle.nullDevice
+        let standardOutputPipe = Pipe()
+        process.standardOutput = standardOutputPipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = Pipe()
         process.environment = Self.hermeticChildEnvironment(zmxDir: zmxDir, scratchHomeDirectory: scratchHomeDirectory)
         try process.run()
 
         let processID = process.processIdentifier
+        let sessionCreatedStep = beginDrainingStandardOutput(
+            standardOutputPipe, awaitingSessionCreatedLineFor: sessionId)
         spawnedProcesses.append(
             SpawnedProcess(
                 process: process,
-                processID: processID
+                processID: processID,
+                standardOutputPipe: standardOutputPipe
             ))
 
-        try await waitUntilSessionSettled(sessionId: sessionId, zmxLauncherProcessID: processID)
+        try await waitUntilSessionSettled(
+            sessionId: sessionId, zmxLauncherProcessID: processID, sessionCreatedStep: sessionCreatedStep
+        )
         return process
     }
 
@@ -415,9 +444,11 @@ final class ZmxTestHarness: @unchecked Sendable {
     ///
     /// The returned process must be awaited by callers through `cleanup()`.
     func spawnColdRestoreSession(plan: TerminalColdRestorePlan) async throws -> Process {
-        let process = try spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
+        let (process, sessionCreatedStep) = try spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
         try await waitUntilSessionSettled(
-            sessionId: plan.sessionID.rawValue, zmxLauncherProcessID: process.processIdentifier
+            sessionId: plan.sessionID.rawValue,
+            zmxLauncherProcessID: process.processIdentifier,
+            sessionCreatedStep: sessionCreatedStep
         )
         return process
     }
@@ -429,9 +460,18 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// ever reaching, that point -- for example a bogus `zmxExecutable`
     /// whose attach client exits before any socket exists.
     ///
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): still returns the
+    /// per-launcher "created" step (unused by a caller that discards it,
+    /// such as the ForcedTiming held-wrapper tests, which already know no
+    /// session can settle while held) so `spawnColdRestoreSession` above
+    /// can race it without a second, separate drain on the same pipe.
+    ///
     /// The returned process must be awaited by callers through `cleanup()`.
-    func spawnColdRestoreSessionWithoutWaitingForSettlement(plan: TerminalColdRestorePlan) throws -> Process {
-        try spawnShellCommandWithoutWaitingForSettlement(ZmxBackend.buildColdRestoreCommand(plan))
+    func spawnColdRestoreSessionWithoutWaitingForSettlement(
+        plan: TerminalColdRestorePlan
+    ) throws -> (process: Process, sessionCreatedStep: HeldStep<Result<Void, any Error>>) {
+        try spawnShellCommandWithoutWaitingForSettlement(
+            ZmxBackend.buildColdRestoreCommand(plan), sessionId: plan.sessionID.rawValue)
     }
 
     /// The general form of `spawnColdRestoreSessionWithoutWaitingForSettlement`
@@ -446,25 +486,40 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// waits on its own observable proof (a socket, an identity, session
     /// history) after this returns.
     ///
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): `sessionId` names the
+    /// session this command line is ultimately expected to reach (via
+    /// whatever `exec` chain it runs through) so its own eventual
+    /// `session "<id>" created` line can be recognized on the same stdout
+    /// every caller already gets piped and drained from here. The caller
+    /// does not have to consume the returned step -- a held-wrapper test
+    /// that already knows no session can settle while held just discards
+    /// it, exactly as it discarded the whole process before.
+    ///
     /// The returned process must be awaited by callers through `cleanup()`.
-    func spawnShellCommandWithoutWaitingForSettlement(_ commandLine: String) throws -> Process {
+    func spawnShellCommandWithoutWaitingForSettlement(
+        _ commandLine: String, sessionId: String
+    ) throws -> (process: Process, sessionCreatedStep: HeldStep<Result<Void, any Error>>) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", commandLine]
-        process.standardOutput = FileHandle.nullDevice
+        let standardOutputPipe = Pipe()
+        process.standardOutput = standardOutputPipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = Pipe()
         process.environment = Self.hermeticChildEnvironment(zmxDir: zmxDir, scratchHomeDirectory: scratchHomeDirectory)
         try process.run()
 
         let processID = process.processIdentifier
+        let sessionCreatedStep = beginDrainingStandardOutput(
+            standardOutputPipe, awaitingSessionCreatedLineFor: sessionId)
         spawnedProcesses.append(
             SpawnedProcess(
                 process: process,
-                processID: processID
+                processID: processID,
+                standardOutputPipe: standardOutputPipe
             ))
 
-        return process
+        return (process, sessionCreatedStep)
     }
 
     /// F7 (review round 1): the general form of
@@ -498,10 +553,68 @@ final class ZmxTestHarness: @unchecked Sendable {
         spawnedProcesses.append(
             SpawnedProcess(
                 process: process,
-                processID: processID
+                processID: processID,
+                standardOutputPipe: standardOutputPipe
             ))
 
         return (process, standardOutputPipe)
+    }
+
+    /// `beginDrainingStandardOutput`'s own scan state, bundled so one
+    /// `Mutex` protects both fields together: a chunk arriving after the
+    /// marker was already found must neither re-scan nor re-accumulate.
+    private struct SessionCreatedLineScan {
+        var accumulated = Data()
+        var markerAlreadySettled = false
+    }
+
+    /// R1 gate 4, F7 fix (Lead decision 2026-10-02): arms a persistent
+    /// reader on a freshly spawned launcher's own stdout `Pipe`, for the
+    /// process's entire lifetime -- it only ever stops itself at EOF, never
+    /// after finding the marker, so a live attach client's ongoing PTY
+    /// output can never fill the pipe and block it (`terminateSpawnedProcesses`
+    /// is the other half: it nils the handler explicitly once the kill
+    /// signal has already been sent). Returns a step that settles exactly
+    /// once, with `.success` the moment this launcher's own
+    /// `session "<id>" created\n` (vendor/zmx/src/loop.zig:773) is
+    /// recognized in the accumulated bytes -- `.contains` on the whole
+    /// buffer so far, not a per-chunk check, is what makes this safe
+    /// against the OS splitting the line across reads. The caller races
+    /// this against the same launcher exiting first (a separate watch, in
+    /// `ZmxTestHarness+SessionSettlement.swift`), which settles the same
+    /// step with `.failure` -- this function itself never reports an
+    /// absence, only ever a success, by design: EOF before the marker
+    /// means the launcher is gone, and that is the exit watch's fact to
+    /// report, not a race between two different tellings of the same
+    /// event.
+    private func beginDrainingStandardOutput(
+        _ pipe: Pipe,
+        awaitingSessionCreatedLineFor sessionId: String
+    ) -> HeldStep<Result<Void, any Error>> {
+        let step = HeldStep<Result<Void, any Error>>("session created line")
+        let markerBytes = Data("session \"\(sessionId)\" created\n".utf8)
+        let scan = Mutex(SessionCreatedLineScan())
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            // FileHandle.readabilityHandler dispatches off the cooperative
+            // pool entirely, never inside a Swift Task.
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                pipe.fileHandleForReading.readabilityHandler = nil
+                return
+            }
+            let markerJustFound = scan.withLock { state -> Bool in
+                guard !state.markerAlreadySettled else { return false }
+                state.accumulated.append(chunk)
+                guard state.accumulated.contains(markerBytes) else { return false }
+                state.markerAlreadySettled = true
+                state.accumulated = Data()  // nothing further needs to be retained
+                return true
+            }
+            if markerJustFound {
+                try? step.arriveBlocking(.success(()))
+            }
+        }
+        return step
     }
 
     func sessionHistory(sessionId: String) async throws -> String {
@@ -556,6 +669,16 @@ final class ZmxTestHarness: @unchecked Sendable {
             if entry.process.isRunning {
                 entry.process.terminate()
             }
+
+            // R1 gate 4, F7 fix (Lead decision 2026-10-02): the owning
+            // teardown point for `beginDrainingStandardOutput`'s reader --
+            // only now, after the kill signals above, so this never races
+            // a still-live client's own writes. A reader that already
+            // reached EOF on its own (the common case for a process that
+            // exited naturally) already nilled this itself; this is a
+            // harmless no-op then, and the only teardown for one still
+            // running right up to this kill.
+            entry.standardOutputPipe?.fileHandleForReading.readabilityHandler = nil
         }
 
         spawnedProcesses.removeAll()
