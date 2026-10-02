@@ -178,6 +178,23 @@ final class WorkspaceSurfaceCoordinator {
     /// on successful reinstall or permanent retirement (`retirePanesPermanently`),
     /// never on a failed attempt alone.
     var pendingRestorePhaseLatchesByPaneID: [UUID: RestoreGeneration] = [:]
+    /// Issues fresh, launch-unique `RestoreGeneration` values (SR6b;
+    /// Program Design item 13). Moved here from the now-deleted
+    /// `RestoreGenerationAllocator` (a process-wide singleton the repo's
+    /// `agentstudio_no_new_process_singletons` lint now forbids,
+    /// agent-studio#441): `RestoreGeneration` is compared only for
+    /// equality/dedup, never ordered (its own doc comment), so uniqueness
+    /// per coordinator -- the one production owner that arms a restore
+    /// phase -- is sufficient; generations are only ever compared within
+    /// one pane's own history.
+    private var nextRestoreGenerationValue: UInt64 = 1
+    /// Not `private`: `WorkspaceSurfaceCoordinator+TerminalContentMounting.swift`'s
+    /// `mountPreparedTerminalContent` is the one call site, in a different
+    /// file -- `private` is file-scoped and does not cross that boundary.
+    func allocateRestoreGeneration() -> RestoreGeneration {
+        defer { nextRestoreGenerationValue &+= 1 }
+        return RestoreGeneration(rawValue: nextRestoreGenerationValue)
+    }
     var bridgePaneRetirementsRequiringRuntimeUnregister: Set<UUID> = []
     var bridgePaneRetirementsRequiringRestore: Set<UUID> = []
     var filesystemSyncTask: Task<Void, Never>?

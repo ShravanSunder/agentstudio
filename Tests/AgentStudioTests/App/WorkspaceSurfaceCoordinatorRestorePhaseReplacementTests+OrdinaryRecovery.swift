@@ -68,7 +68,7 @@ extension WorkspaceSurfaceRestorePhaseReplacementTests {
         projector: TerminalActivityProjector,
         recorder: FactRecorder<UUID, ReplacementFact>
     ) async throws -> (generation: RestoreGeneration, initialSurface: Ghostty.SurfaceView) {
-        let generation = RestoreGenerationAllocator.allocate()
+        let generation = coordinator.allocateRestoreGeneration()
         let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
             paneID: pane.id, restoreGeneration: generation)
         #expect(acknowledgment == .armed)

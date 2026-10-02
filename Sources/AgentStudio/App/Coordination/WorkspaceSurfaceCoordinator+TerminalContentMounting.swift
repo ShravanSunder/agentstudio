@@ -137,7 +137,7 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         var coldStartObserver: ColdStartObserver?
         var coldStartPlan: TerminalColdRestorePlan?
         if case .cold(let plan) = admission.restoreKind {
-            let generation = RestoreGenerationAllocator.allocate()
+            let generation = allocateRestoreGeneration()
             let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
                 paneID: pane.id,
                 restoreGeneration: generation

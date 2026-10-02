@@ -385,7 +385,7 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
 
         // 1. Arm through the real router entry point -- the same call
         // `mountPreparedTerminalContent` makes for every cold pane.
-        let generation = RestoreGenerationAllocator.allocate()
+        let generation = coordinator.allocateRestoreGeneration()
         let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
             paneID: pane.id, restoreGeneration: generation)
         #expect(acknowledgment == .armed)
@@ -534,7 +534,7 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         // `arrangeArmedAndRepairedPane`'s own steps 1 and the latch-setting
         // mount that follows; see that function's comments for why each
         // call is shaped this way.
-        let generation = RestoreGenerationAllocator.allocate()
+        let generation = coordinator.allocateRestoreGeneration()
         let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
             paneID: pane.id, restoreGeneration: generation)
         #expect(acknowledgment == .armed)
