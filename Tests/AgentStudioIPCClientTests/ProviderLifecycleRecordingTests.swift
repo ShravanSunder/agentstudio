@@ -3,7 +3,6 @@ import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import AgentStudioTestHarness
 import Foundation
-import Synchronization
 import Testing
 
 @testable import AgentStudioIPCClientCore
@@ -16,7 +15,7 @@ struct ProviderLifecycleRecordingTests {
             let fixture = try LifecycleHookFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.storeURL, channel: .debug).get()
-            let deliveries = Mutex<[LifecycleHookDeliveryObservation]>([])
+            let deliveries = LifecycleHookRecorder<[LifecycleHookDeliveryObservation]>([])
             let result = ProviderHookInvocation.runCodexHook(
                 .init(
                     eventName: eventName, environment: fixture.environment,
@@ -52,7 +51,7 @@ struct ProviderLifecycleRecordingTests {
             defer { fixture.remove() }
             _ = try CLIStore.openWriter(url: fixture.storeURL, channel: .debug).get()
             let occurrence = UUIDv7.generate()
-            let diagnostics = Mutex<[String]>([])
+            let diagnostics = LifecycleHookRecorder<[String]>([])
             let code = ClaudeCodeHookInvocation.handle(
                 .init(
                     arguments: ["hook", "claude", eventName], environment: fixture.environment,
@@ -75,8 +74,8 @@ struct ProviderLifecycleRecordingTests {
             defer { fixture.remove() }
             var environment = fixture.environment
             environment["AGENTSTUDIO_CLI_STORE"] = fixture.rootURL.path  // a directory, never a database
-            let sent = Mutex<[IPCSessionEventParams]>([])
-            let diagnostics = Mutex<[String]>([])
+            let sent = LifecycleHookRecorder<[IPCSessionEventParams]>([])
+            let diagnostics = LifecycleHookRecorder<[String]>([])
             let code = ProviderHookInvocation.runCodexHook(
                 .init(
                     eventName: "SessionEnd", environment: environment,
@@ -154,4 +153,14 @@ private struct LifecycleHookFileFixture: Sendable {
             """.utf8)
     }
     func remove() { try? FileManager.default.removeItem(at: rootURL) }
+}
+
+/// CLI leaf tests use Foundation locks; mutations stay inside one critical section.
+private final class LifecycleHookRecorder<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func withLock<Output>(_ operation: (inout Value) -> Output) -> Output {
+        lock.withLock { operation(&value) }
+    }
 }
