@@ -94,12 +94,16 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    private enum ReplacementFact: Sendable, Equatable {
+    /// Not private: shared with +OrdinaryRecovery.swift (vocabulary()'s return type).
+    enum ReplacementFact: Sendable, Equatable {
         case restorePhaseArmed(generation: RestoreGeneration)
         case restorePhaseEnded(generation: RestoreGeneration)
     }
 
-    private func vocabulary() -> FactVocabulary<UUID, ReplacementFact> {
+    /// Not `private` (test-file split, Lead 2026-10-02): shared with
+    /// `WorkspaceSurfaceCoordinatorRestorePhaseReplacementTests+OrdinaryRecovery.swift`
+    /// -- `private` is file-scoped and does not cross the split.
+    func vocabulary() -> FactVocabulary<UUID, ReplacementFact> {
         FactVocabulary(
             describeScope: { $0.uuidString },
             describeFact: { String(describing: $0) },
@@ -116,8 +120,10 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// hands back is a real `Ghostty.SurfaceView`, just one with no native
     /// `ghostty_surface_t` (this suite never needs one -- see the suite doc
     /// comment above).
+    ///
+    /// Not private: shared with +OrdinaryRecovery.swift.
     @MainActor
-    private final class SucceedingRestoreSurfaceManager: WorkspaceSurfaceManaging {
+    final class SucceedingRestoreSurfaceManager: WorkspaceSurfaceManaging {
         private(set) var createdSurfaceIDsInOrder: [UUID] = []
         private var surfacesByID: [UUID: Ghostty.SurfaceView] = [:]
 
@@ -193,7 +199,8 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure) {}
     }
 
-    private func makeCoordinator(
+    /// Not private: shared with +OrdinaryRecovery.swift.
+    func makeCoordinator(
         surfaceManager: any WorkspaceSurfaceManaging,
         windowLifecycleStore: WindowLifecycleAtom
     ) throws -> WorkspaceSurfaceCoordinator {
@@ -217,7 +224,8 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// resolvable frame (`createViewForContentUsingCurrentGeometry` ->
     /// `resolveInitialFramesByTabId`, confirmed by reading both), so this
     /// pane is placed in a single-pane tab up front.
-    private func makeTabbedPane(
+    /// Not private: shared with +OrdinaryRecovery.swift.
+    func makeTabbedPane(
         coordinator: WorkspaceSurfaceCoordinator, launchDirectory: URL
     ) -> Pane {
         let pane = coordinator.store.paneAtom.createPane(
@@ -241,7 +249,8 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// helper exists yet for this shape (every file in this directory that
     /// needs one writes its own), so this mirrors rather than imports the
     /// sibling's.
-    private func makeFallbackPlan(sessionID: ZmxSessionID) -> TerminalColdRestorePlan {
+    /// Not private: shared with +OrdinaryRecovery.swift.
+    func makeFallbackPlan(sessionID: ZmxSessionID) -> TerminalColdRestorePlan {
         TerminalColdRestorePlan(
             zmxExecutable: URL(fileURLWithPath: "/usr/bin/true"),
             zmxDirectory: URL(fileURLWithPath: "/tmp"),
@@ -262,7 +271,8 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// `TerminalActivityRouter.consumeTerminalActivityInput` --
     /// `.restorePhaseArmed` and `.orderedControl(... .restorePhaseEnded)` --
     /// confirmed by reading that method's real switch directly.
-    private func bindProjector(
+    /// Not private: shared with +OrdinaryRecovery.swift.
+    func bindProjector(
         _ projector: TerminalActivityProjector,
         bindingID: UUID,
         factSink: @escaping @Sendable (UUID, ReplacementFact) -> Void
@@ -292,7 +302,8 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         )
     }
 
-    private struct ReplacementScenario {
+    /// Not private: shared with +OrdinaryRecovery.swift.
+    struct ReplacementScenario {
         let coordinator: WorkspaceSurfaceCoordinator
         let projector: TerminalActivityProjector
         let outcomes: ReplacementOutcomeRecorder
@@ -336,7 +347,8 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// flattened `outcomes` snapshot after the fact (`drainAndAssertRestorePhaseEndedExactlyOnce`'s
     /// own baseline assertion), never the full recorder's wait/predicate
     /// machinery, so this carries only `record(_:)` and `outcomes`.
-    private final class ReplacementOutcomeRecorder: @unchecked Sendable {
+    /// Not private: shared with +OrdinaryRecovery.swift.
+    final class ReplacementOutcomeRecorder: @unchecked Sendable {
         private let lock = NSLock()
         private var recordedOutcomes: [TerminalActivityProjectionOutcome] = []
 
@@ -646,7 +658,8 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// Never tears down the scenario itself -- every exit here is a
     /// `throw`, not a `return`, so the caller's `do`/`catch` around
     /// `scenario.tearDown()` is the only place cleanup runs.
-    private func drainAndAssertRestorePhaseEndedExactlyOnce(
+    /// Not private: shared with +OrdinaryRecovery.swift.
+    func drainAndAssertRestorePhaseEndedExactlyOnce(
         _ scenario: ReplacementScenario
     ) async throws {
         // The latch itself clears synchronously, inside `keyDown`/`paste`,
@@ -795,11 +808,12 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     }
 }
 
-private enum ReplacementTestFailure: Error {
+enum ReplacementTestFailure: Error {
     case setupDidNotSucceed
 }
 
-private func makeReplacementAggregate(
+/// Not private: shared with +OrdinaryRecovery.swift.
+func makeReplacementAggregate(
     firstTotal: Int,
     latestTotal: Int
 ) -> TerminalScrollbarActivityAggregate {

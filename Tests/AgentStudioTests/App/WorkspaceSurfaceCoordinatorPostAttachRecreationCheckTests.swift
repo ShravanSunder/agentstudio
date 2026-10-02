@@ -436,4 +436,75 @@ struct PostAttachRecreationCheckWiringTests {
         // Assert
         #expect(coordinator.postAttachRecreationCheckTasksByPaneID.isEmpty)
     }
+
+    /// R3-2 (Lead decision 2026-10-02): `finishViewTeardown`
+    /// (+ViewLifecycle.swift) is the ordinary-unmount/repair-teardown case
+    /// `retirePanesPermanently` (proven by `paneRetiredBeforeFirstRenderSettlesUncheckableWithoutProbing`
+    /// above) does not cover -- nothing re-registers a check on this path,
+    /// so a pending one must close the same way. Pre-fix, the entry was
+    /// never removed here, so a later push would still find it and start
+    /// the check for real; this proves both that it settles uncheckable
+    /// now and that the later push genuinely finds nothing left.
+    @Test("tearing a view down before first render settles uncheckable without probing, and a later push is ignored")
+    func viewTornDownBeforeFirstRenderSettlesUncheckableWithoutProbingAndIgnoresALaterPush() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let probe = ScriptedProbe()
+        probe.observedIdentity = Data([1, 2, 3])
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-view-torn-down")
+
+        // Act
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: Data([1, 2, 3]),
+                fallback: makeFallbackPlan(sessionIDText: "as-post-attach-view-torn-down")))
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] != nil)
+        coordinator.teardownView(for: pane.id, shouldUnregisterRuntime: false)
+
+        // Assert
+        try await recorder.expectNext(in: pane.id, .uncheckable(.paneUnavailableBeforeFirstRender))
+        #expect(probe.observeCallCount == 0)
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil)
+
+        // A later, stale first-render push for the same pane must not
+        // start a check -- the registration is already gone.
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
+        #expect(coordinator.postAttachRecreationCheckTasksByPaneID.isEmpty)
+        #expect(probe.observeCallCount == 0)
+    }
+
+    /// R3-2 (Lead decision 2026-10-02): `shutdown()` used to `removeAll()`
+    /// every still-pending check silently. Now it reports the same
+    /// disposition for each one, same reason and shape as
+    /// `retirePanesPermanently` and `finishViewTeardown`'s own closes.
+    @Test("coordinator shutdown settles uncheckable for every still-pending post-attach check")
+    func shutdownSettlesUncheckableForEveryPendingCheck() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let probe = ScriptedProbe()
+        probe.observedIdentity = Data([1, 2, 3])
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-shutdown")
+
+        // Act
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: Data([1, 2, 3]), fallback: makeFallbackPlan(sessionIDText: "as-post-attach-shutdown")))
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] != nil)
+        await coordinator.shutdown()
+
+        // Assert
+        try await recorder.expectNext(in: pane.id, .uncheckable(.paneUnavailableBeforeFirstRender))
+        #expect(probe.observeCallCount == 0)
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID.isEmpty)
+    }
 }
