@@ -303,7 +303,7 @@ Batches are emitted and applied in order by the single drain loop, so a `.remove
 | Deadline | worker actor | worker | next deadline | the one reschedulable wait; on fire → "recapture" to the adapter |
 | Materialize | AppKit main | materializer + host | row model + selection | shows the expanded variant for the selected row only; measured heights; anchor restore |
 
-**Line rules (spec "Row and chip design"):** compact = title · worktree/branch · one context line (Agent Line while current, else note, else none) · compact chips. Expanded = every existing line + all chips. The terminal-output secondary line and the "zsh" title fallback line are **removed** (explorer §4.2).
+**Line rules (spec "Row and chip design"):** every row, selected or not, shows every existing line (title · worktree/branch · note · Agent Line · Session status) and the chips; selection only adds the changes and ahead/behind chips (owner, 2026-10-01; one visibility table, `RepoExplorerPaneLineVisibilityTable`). The terminal-output secondary line and the "zsh" title fallback line are **removed** (explorer §4.2).
 
 **Changed edges in capture:** Panes rows take their recency from the published `PaneActivityTime` with the capture's reference pair; Repos keeps its basis. `isActive` stops reading focus and comes from the worker's bucket (explorer §3.5).
 
