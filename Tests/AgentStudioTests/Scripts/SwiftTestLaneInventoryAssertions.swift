@@ -6,6 +6,7 @@ enum SwiftTestLaneInventoryAssertions {
     static func assertCompleteAndDisjoint() async throws {
         let rows = try await readInventoryRows()
         try assertInventoryRowsExistAndCoverRealProcessSuites(rows)
+        try await assertFastShardManifestCoversNativeFastSuites(rows)
         let filters = try await readLaneFilterPatterns()
         assertGeneratedSelectorsAssignEachListedTypeOnce(rows, filters: filters)
         assertUnlistedOrdinarySuitesStayFast(filters)
@@ -70,6 +71,35 @@ enum SwiftTestLaneInventoryAssertions {
         let nestedSuitePaths = Set(try swiftSuiteTypeDeclarations(in: nestedSuiteProbe).map(\.path))
         #expect(nestedSuitePaths == ["WebKitSerializedTests/BridgeTransportIntegrationTests"])
         #expect(!nestedSuitePaths.contains("WrongParent/BridgeTransportIntegrationTests"))
+    }
+
+    private static func assertFastShardManifestCoversNativeFastSuites(
+        _ rows: [SuiteLaneInventoryRow]
+    ) async throws {
+        let manifestData = try Data(contentsOf: URL(fileURLWithPath: "scripts/swift-test-fast-shard-manifest.json"))
+        let manifest = try #require(JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+        let manifestSuites = try #require(manifest["suites"] as? [[String: Any]])
+        let manifestTypePaths = Set(manifestSuites.compactMap { $0["type_path"] as? String })
+        let aggregateSerialOutput = try await runBash(
+            "source scripts/swift-test-helpers.sh\n"
+                + "aggregate_serial_non_webkit_suite_filters"
+        )
+        let aggregateSerialNames = Set(aggregateSerialOutput.split(whereSeparator: \.isNewline).map(String.init))
+        let inventoryByPath = Dictionary(uniqueKeysWithValues: rows.map { ($0.suiteTypePath, $0) })
+        let annotatedSourceTypes = try swiftTestSourceFiles()
+            .flatMap(swiftSuiteTypeDeclarations(in:))
+            .filter(\.hasSuiteAnnotation)
+        let requiredFastPaths = Set(
+            annotatedSourceTypes.compactMap { suiteType -> String? in
+                guard !aggregateSerialNames.contains(suiteType.name) else { return nil }
+                guard let inventoryRow = inventoryByPath[suiteType.path] else { return suiteType.path }
+                return inventoryRow.lane == "fast" && inventoryRow.mode == "concurrent" ? suiteType.path : nil
+            })
+
+        #expect(
+            requiredFastPaths.isSubset(of: manifestTypePaths),
+            "the F2 manifest must include every native fast suite, including unlisted suites that default to fast"
+        )
     }
 
     private static func readLaneFilterPatterns() async throws -> LaneFilterPatterns {

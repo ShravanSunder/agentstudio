@@ -111,7 +111,7 @@ struct SwiftLaneRunnerReportTests {
                 + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3 "
                 + "LANE_TIMING_CONCURRENCY=4; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'fixture' 60 /bin/bash -c 'exit 7' || status=$?; "
+                + "run_swift_with_timeout 'fixture' 60 /bin/bash -c 'printf ready; exit 7' || status=$?; "
                 + "echo STATUS=${status:-0}"
         )
         let files = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory)
@@ -132,6 +132,7 @@ struct SwiftLaneRunnerReportTests {
         #expect(record["phase"] == nil || record["phase"] is NSNull)
         #expect(record["timed_out"] as? Bool == false)
         #expect(record["event_stream_file"] is String)
+        #expect((record["start_to_first_output_seconds"] as? Double).map { $0 >= 0 } == true)
     }
 
     @Test("prebuild flags are absent by default and appended when compiler statistics are enabled")
