@@ -1,6 +1,8 @@
 # Enable pane agents: how it is built
 
-Date: 2026-10-02. **Revision 24** records two decisions from 2026-10-02:
+Date: 2026-10-02. **Revision 25** (owner, 2026-10-02): link removal ships without agent notification for now (Spec R19 deferred). Gaps item 4 is rewritten: no removal facts are consumed, and the replay request to Bridge is withdrawn.
+
+**Revision 24** records two decisions from 2026-10-02:
 - the fast CLI's light index is realized as one typed-entry inventory, shared by the app's full catalog and the CLI's on-demand resolver (choice 4; built on `fast-cli-store`);
 - the pull-request chip registers no Forge demand until B2 links exist (agreed with Panes).
 
@@ -1280,7 +1282,7 @@ GRDB migrations, additive, never a rebuild):
 | R3a, R13 | Sessions evidence: S13 prompt open/resolve/end in `SessionStatusState`; installer keeps permission hooks report-only |
 | R8–R11, R11a | `pane.message.ask` + waiter + one settle point + connection lifetime (\"Connections\"); receipt columns confirmed by `pane.message.changes` |
 | R14 | `pane.message.changes` + `pane_answer_position` + CLI position; paging and change-entry retention (\"Bounds and retention\") |
-| R16–R20 | B2: Bridge's single `show(pane:target:mode:)` (background default; take-over only after the handler's blocking approval ask is answered allow); R19 person removals from Bridge's post-commit `membershipFacts()`, resumed by generation once Bridge adds replay |
+| R16–R20 | B2: Bridge's single `show(pane:target:mode:)` (background default; take-over only after the handler's blocking approval ask is answered allow); R19 deferred: no removal facts are consumed; a removed link is simply absent from `pane.context.get` links |
 | R21–R23 | `pane_state` + write order + writer check ("Writers and write numbers") + title layer via `PaneDisplayTitleDerived`; expiry and session-end staleness ("Keeping displayed values current") |
 | R24 | bundled skill update |
 | R25 | `pane.context.get` composing service, Sessions status and (B2) links |
@@ -1340,13 +1342,20 @@ GRDB migrations, additive, never a rebuild):
    - `AgentStudioIPCHumanApprovalPort` (#364's grant policy) is not used.
      Projecting grant approvals into AgentMessage is a recorded follow-up.
    - The membership port is unchanged from #376.
-4. **Person removals in B2 (owner-approved, Bridge seq 2114).** Bridge emits
-   `BridgeLinkContributionsRemoved { receiver, item, removedContributions,
-   removedBy, generation }` after its durable commit, on
-   `PaneLinkMembershipPort.membershipFacts()`. That replaces "route every
-   removal through PR B's seam". A live stream isn't durable across an app
-   exit, so PR B stores the last consumed generation per receiver and asks
-   Bridge to replay facts after it on start. **Gap on main:** `membershipFacts()` is a live stream with no replay. Asked Bridge for an additive `membershipFacts(after: generation)` replay (board, 2026-09-27) before B2.
+4. **Person removals: deferred (owner, 2026-10-02).** Link removal ships
+   without agent notification. PR B and B2 consume no removal facts, and the
+   change feed has no link-removal kind (`PaneMessageChangeKind` is answer,
+   dismissal and withdrawal). An agent sees a removed link only as absent
+   from its pane's current links.
+   - The replay request to Bridge (`membershipFacts(after: generation)`,
+     board 2026-09-27) is **withdrawn**. Bridge builds no removal-fact
+     producer, replay or event store for now.
+   - Main's `PaneLinkMembershipPort.membershipFacts()` contract is unchanged
+     and has no consumer here.
+   - Deferred, not dropped: the earlier design (Bridge emits
+     `BridgeLinkContributionsRemoved` after its commit; PR B keeps the last
+     consumed generation per receiver) comes back only through a new owner
+     decision.
 5. **Contract row change.** The AgentMessage detail shapes, the `SessionStatusState` inputs (including "pane viewed") and the `SessionStatusAtom` value are hand-off contracts (delivery order). They are posted on thread 01a0cdc9 for Panes' acknowledgement before code.
 
 6. **Pane and drawer membership for off-main readers. Owner decision 2026-09-30: B, a membership directory** (no "crazy new machinery"; reviewed by the Sol xhigh advisor, `tmp/workspace-control/prb-review/membership-directory-review.md`, findings M1–M3 accepted). Design (rev 20):
