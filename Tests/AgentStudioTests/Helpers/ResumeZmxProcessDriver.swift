@@ -10,6 +10,7 @@ import Testing
 private enum ResumeOutputFact: Equatable, Sendable {
     case startupGate(String)
     case shellReady(String)
+    case providerCalled(String)
     case eof(String)
     case failed(Int32, String)
     case attachExited(Int32, String)
@@ -23,6 +24,7 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         var output = Data()
         var startupGateSeen = false
         var shellSeen = false
+        var providerSeen = false
         var readEnded = false
         var cancelled = false
         var launched = false
@@ -30,6 +32,7 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         var cancelConsumed = false
     }
     static let startupGateMarker = "__RESUME_ATTACH_STARTUP_GATE__"
+    static let providerMarker = "__RESUME_PROVIDER_CALLED__"
     static let shellMarker = "__RESUME_INTERACTIVE_SHELL_READY__"
     private let process = Process()
     private let pipe = Pipe()
@@ -125,6 +128,13 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         return text
     }
 
+    func expectProviderInvocation() async throws -> String {
+        let fact = try await outputFacts.expectNext(
+            in: scope, where: { _ in true }, "provider invocation or owned attach close")
+        guard case .providerCalled(let text) = fact else { throw ResumeOutputWaitFailure(observed: fact) }
+        return text
+    }
+
     func expectInteractiveShell() async throws -> String {
         let fact = try await outputFacts.expectNext(in: scope, where: { _ in true }, "resume interactive shell output")
         guard case .shellReady(let text) = fact else { throw ResumeOutputWaitFailure(observed: fact) }
@@ -152,6 +162,10 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
                     if !state.startupGateSeen, text.contains(Self.startupGateMarker) {
                         state.startupGateSeen = true
                         facts.append(.startupGate(text))
+                    }
+                    if !state.providerSeen, text.contains(Self.providerMarker) {
+                        state.providerSeen = true
+                        facts.append(.providerCalled(text))
                     }
                     if !state.shellSeen, text.contains(Self.shellMarker) {
                         state.shellSeen = true

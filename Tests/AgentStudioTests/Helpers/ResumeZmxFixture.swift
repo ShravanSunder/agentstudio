@@ -17,11 +17,21 @@ struct ResumeZmxFixture: Sendable {
     let cliURL: URL
     let callsURL: URL
     let profileURL: URL
+    let invocationFolderURL: URL
     let dotDirectory: URL
+    private let ownership: ResumeEvidenceZmxEnvironment?
 
-    init(harness: ZmxTestHarness, providerIdentifier: String, exitCode: Int32) throws {
+    init(
+        harness: ZmxTestHarness, providerIdentifier: String, exitCode: Int32,
+        providerSessionId: String? = nil, restoreSessionID: ZmxSessionID? = nil,
+        reportsToFile: Bool = false, holdResume: Bool = true,
+        ownership: ResumeEvidenceZmxEnvironment? = nil
+    ) throws {
         self.harness = harness
-        let root = URL(fileURLWithPath: harness.zmxDir)
+        self.ownership = ownership
+        let sessionDirectory = URL(fileURLWithPath: harness.zmxDir)
+        let root = sessionDirectory.appending(path: "resume-proof-\(UUIDv7.generate())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let binDirectory = root.appending(path: "resume bin's directory")
         dotDirectory = root.appending(path: "isolated-zdot")
         try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
@@ -29,19 +39,26 @@ struct ResumeZmxFixture: Sendable {
         reportPath = root.appending(path: "resume-argv-fifo").path
         holdPath = root.appending(path: "resume-hold-fifo").path
         startupHoldPath = root.appending(path: "resume-startup-hold-fifo").path
-        for path in [reportPath, holdPath, startupHoldPath] {
+        let fifoPaths = reportsToFile ? [holdPath, startupHoldPath] : [reportPath, holdPath, startupHoldPath]
+        for path in fifoPaths {
             guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
         callsURL = root.appending(path: "resume-calls")
         profileURL = root.appending(path: "login-profile-read")
+        invocationFolderURL = root.appending(path: "resume-folder")
         let binaryName = providerIdentifier == "codex" ? "codex" : "claude"
         let cli = binDirectory.appending(path: binaryName)
         cliURL = cli
+        let folderReport = reportsToFile ? "pwd >\(quoteResumeFixturePath(invocationFolderURL.path))" : ":"
+        let providerMarker = reportsToFile ? "printf '\(ResumeZmxProcessDriver.providerMarker)\\n'" : ":"
+        let providerHold = holdResume ? "/bin/cat \(quoteResumeFixturePath(holdPath)) >/dev/null" : ":"
         let cliScript = """
             #!/bin/sh
             printf 'called\n' >>\(quoteResumeFixturePath(callsURL.path))
             printf '%s\n%s\n%s\n' "$#" "$1" "$2" >\(quoteResumeFixturePath(reportPath))
-            /bin/cat \(quoteResumeFixturePath(holdPath)) >/dev/null
+            \(folderReport)
+            \(providerMarker)
+            \(providerHold)
             if [ \(exitCode) -ne 0 ]; then printf 'session-no-longer-exists\n' >&2; fi
             exit \(exitCode)
             """
@@ -62,7 +79,7 @@ struct ResumeZmxFixture: Sendable {
             """
         try shellRC.write(to: dotDirectory.appending(path: ".zshrc"), atomically: true, encoding: .utf8)
         let provider = try #require(ResumeProvider(providerIdentifier: providerIdentifier))
-        let sessionId = try ProviderSessionId(rawValue: UUIDv7.generate().uuidString)
+        let sessionId = try ProviderSessionId(rawValue: providerSessionId ?? UUIDv7.generate().uuidString)
         invocation = ResumeInvocation(provider: provider, sessionId: sessionId)
         let zmxPath = try #require(harness.zmxPath)
         // First attach does not replay pre-client output (zmx handleInit).
@@ -86,8 +103,9 @@ struct ResumeZmxFixture: Sendable {
         try wrapperScript.write(to: wrapper, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
         let base = TerminalColdRestorePlan(
-            zmxExecutable: wrapper, zmxDirectory: root,
-            sessionID: .generateUUIDv7(), loginShell: URL(fileURLWithPath: "/bin/zsh"), folderCandidates: [root],
+            zmxExecutable: wrapper, zmxDirectory: sessionDirectory,
+            sessionID: restoreSessionID ?? .generateUUIDv7(), loginShell: URL(fileURLWithPath: "/bin/zsh"),
+            folderCandidates: [sessionDirectory],
             notice: .init(linesByCandidateIndex: ["base notice"]), replayFile: nil, resume: nil, attemptID: .generate())
         plan = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
             .interruptedCandidate(invocation),
@@ -97,6 +115,11 @@ struct ResumeZmxFixture: Sendable {
     func launch() async throws -> ResumeZmxProcessDriver {
         try #require(plan.resume == invocation, "the candidate plan must carry its invocation before native launch")
         try #require(!invocation.argv.isEmpty, "resume arguments must exist before waiting for the real CLI")
+        return try await launch(plan: plan)
+    }
+
+    func launch(plan: TerminalColdRestorePlan) async throws -> ResumeZmxProcessDriver {
+        ownership?.retainSession(plan.sessionID)
         var environment = ProcessInfo.processInfo.environment
         environment["ZMX_DIR"] = harness.zmxDir
         environment["ZDOTDIR"] = dotDirectory.path
@@ -104,6 +127,7 @@ struct ResumeZmxFixture: Sendable {
         environment["ZMX_SESSION_PREFIX"] = ""
         let driver = try await ResumeZmxProcessDriver.launch(
             command: ZmxBackend.buildColdRestoreCommand(plan), environment: environment)
+        ownership?.retainClient(driver)
         do {
             try await driver.sendStartupProbe()
             let attached = try await driver.expectStartupGate()
@@ -147,6 +171,10 @@ struct ResumeZmxFixture: Sendable {
     }
 
     func killOwnedSession() async throws {
+        if let ownership {
+            try await ownership.killSession(plan.sessionID)
+            return
+        }
         let zmxPath = try #require(harness.zmxPath)
         var environment = ProcessInfo.processInfo.environment
         environment["ZMX_DIR"] = harness.zmxDir

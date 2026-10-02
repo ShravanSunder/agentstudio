@@ -16,6 +16,7 @@ struct ZmxForegroundFixture: Sendable {
     let generationId: UUID
     let repository: SQLitePaneForegroundObservationRepository
     let observer: PaneForegroundObserver<TestPushClock>
+    let clock: TestPushClock
     let probe: DarwinTerminalForegroundProbe
     let probeGate: ZmxForegroundProbeGate
     private let recordingWatcher: ZmxForegroundRecordingExitWatcher
@@ -28,14 +29,18 @@ struct ZmxForegroundFixture: Sendable {
     let successorHandles: ForegroundFIFOGroup
     let identity: Data
     let harness: ZmxTestHarness
+    private let ownership: ResumeEvidenceZmxEnvironment?
 
-    static func make(harness: ZmxTestHarness, backend: ZmxBackend, provider: String, successorProgram: Bool = false)
+    static func make(
+        harness: ZmxTestHarness, backend: ZmxBackend, provider: String, successorProgram: Bool = false,
+        bindingContext: ZmxForegroundBindingContext? = nil, exitWatcher: (any ProcessExitWatching)? = nil
+    )
         async throws -> Self
     {
         let root = URL(fileURLWithPath: harness.zmxDir)
         let sessionId = ZmxSessionID.generateUUIDv7()
-        let paneId = UUIDv7.generate()
-        let generationId = UUIDv7.generate()
+        let paneId = bindingContext?.paneID ?? UUIDv7.generate()
+        let generationId = bindingContext?.generationID ?? UUIDv7.generate()
         let launchId = UUIDv7.generate()
         let binary = root.appending(path: provider)
         let inputPath = root.appending(path: "agent-input-\(sessionId.rawValue)").path
@@ -45,7 +50,9 @@ struct ZmxForegroundFixture: Sendable {
         let successorOutput = successorProgram ? root.appending(path: "other-output-\(sessionId.rawValue)").path : nil
         // The probe reads argv[0], so the invocation name supplies the agent
         // identity. Keep the platform binary at its signed original location.
-        try FileManager.default.createSymbolicLink(atPath: binary.path, withDestinationPath: "/bin/cat")
+        if !FileManager.default.fileExists(atPath: binary.path) {
+            try FileManager.default.createSymbolicLink(atPath: binary.path, withDestinationPath: "/bin/cat")
+        }
         for path in [inputPath, outputPath, shellPath] {
             guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
@@ -58,12 +65,20 @@ struct ZmxForegroundFixture: Sendable {
         } else {
             successor = "printf shell-ready >\(quoteForegroundPath(shellPath)); exec /bin/sh -i"
         }
+        // Evidence-table job-control cases require an explicit interactive monitor owner.
+        let jobControl = bindingContext == nil ? "" : "set -m; "
         let command =
-            "\(quoteForegroundPath(binary.path)) <\(quoteForegroundPath(inputPath)) >\(quoteForegroundPath(outputPath)); \(successor)"
+            "\(jobControl)\(quoteForegroundPath(binary.path)) <\(quoteForegroundPath(inputPath)) >\(quoteForegroundPath(outputPath)); \(successor)"
         let zmxPath = try #require(harness.zmxPath)
-        _ = try await harness.spawnZmxSession(
-            zmxPath: zmxPath, sessionId: sessionId.rawValue,
-            commandArgs: ["/bin/sh", "-i", "-c", command])
+        if let ownership = bindingContext?.ownership {
+            try await ownership.launchSession(sessionId, arguments: ["/bin/sh", "-i", "-c", command])
+            // The FIFO round trip below proves the actual child is ready, not
+            // merely that its session socket or terminal leader has appeared.
+        } else {
+            _ = try await harness.spawnZmxSession(
+                zmxPath: zmxPath, sessionId: sessionId.rawValue,
+                commandArgs: ["/bin/sh", "-i", "-c", command])
+        }
         let writer = ForegroundFIFOHandle(try await openForegroundFIFO(path: inputPath, flags: O_WRONLY))
         var reader: ForegroundFIFOHandle?
         do {
@@ -77,9 +92,13 @@ struct ZmxForegroundFixture: Sendable {
             let observed = try await backend.observeSessionIdentity(sessionId)
             let identity = try #require(observed)
             let bootId = try ZmxSessionIdentity.decode(identity).bootID
-            let database = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "zmx-foreground-observation")
-            try WorkspaceLocalMigrations.migrate(database)
-            try await seedZmxForegroundBinding(database: database, paneId: paneId, generationId: generationId)
+            let database =
+                try bindingContext?.database
+                ?? SQLiteDatabaseFactory.makeInMemoryQueue(label: "zmx-foreground-observation")
+            if bindingContext == nil {
+                try WorkspaceLocalMigrations.migrate(database)
+                try await seedZmxForegroundBinding(database: database, paneId: paneId, generationId: generationId)
+            }
             let sessions = [paneId: sessionId]
             let repository = SQLitePaneForegroundObservationRepository(
                 access: TestForegroundSQLiteAccess(databaseQueue: database), observerLaunchId: launchId,
@@ -91,20 +110,24 @@ struct ZmxForegroundFixture: Sendable {
             let facts = try source.attach()
             let probe = DarwinTerminalForegroundProbe(sessionDirectory: harness.zmxDir, bootId: bootId)
             let probeGate = ZmxForegroundProbeGate(probe: probe)
-            let recordingWatcher = ZmxForegroundRecordingExitWatcher(wrapping: DarwinProcessExitWatcher())
+            let recordingWatcher = ZmxForegroundRecordingExitWatcher(
+                wrapping: exitWatcher ?? DarwinProcessExitWatcher())
+            let clock = TestPushClock()
             let observer = PaneForegroundObserver(
-                clock: TestPushClock(),
+                clock: clock,
                 policy: .init(lookSettleDelay: .seconds(5), lookMaxDelay: .seconds(60), quitLookDeadline: .seconds(1)),
                 repository: repository, probe: probeGate, exitWatcher: recordingWatcher,
                 observerLaunchId: launchId,
                 factSink: source.sink)
             return Self(
                 paneId: paneId, sessionId: sessionId, generationId: generationId, repository: repository,
-                observer: observer, probe: probe, probeGate: probeGate, recordingWatcher: recordingWatcher,
+                observer: observer, clock: clock, probe: probe, probeGate: probeGate,
+                recordingWatcher: recordingWatcher,
                 facts: facts, inputWriter: writer,
                 agentOutputReader: outputReader,
                 shellReadyPath: shellPath, successorInputPath: successorInput, successorOutputPath: successorOutput,
-                successorHandles: ForegroundFIFOGroup(), identity: identity, harness: harness)
+                successorHandles: ForegroundFIFOGroup(), identity: identity, harness: harness,
+                ownership: bindingContext?.ownership)
         } catch {
             writer.closeOnce()
             reader?.closeOnce()
@@ -151,6 +174,37 @@ struct ZmxForegroundFixture: Sendable {
         #expect(readyBytes == marker)
     }
 
+    /// SIGSTOP is delivered only to the positively identified child owned by this session.
+    func suspendAgentIntoShell(background: Bool) async throws {
+        let snapshots = try await probe.probeForeground(of: [sessionId])
+        let agent = try #require(snapshots[sessionId]?.foregroundProcess)
+        try #require(DarwinColdStartObserverSyscalls().leaderState(of: agent) == .sameIncarnationAlive)
+        ownership?.retainJobControlChild(agent)
+        try #require(Darwin.kill(agent.pid, SIGSTOP) == 0)
+        let reader = try await openForegroundFIFO(path: shellReadyPath, flags: O_RDONLY)
+        defer { close(reader) }
+        let bytes = try await readForegroundBytes(descriptor: reader, byteCount: Data("shell-ready".utf8).count)
+        #expect(bytes == Data("shell-ready".utf8))
+        let status = try await withoutBlockingCooperativePool {
+            var information = proc_bsdinfo()
+            let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+            guard proc_pidinfo(agent.pid, PROC_PIDTBSDINFO, 0, &information, size) == size else {
+                throw POSIXError(.ESRCH)
+            }
+            return information.pbi_status
+        }
+        #expect(status == UInt32(SSTOP))
+        if background {
+            try #require(DarwinColdStartObserverSyscalls().leaderState(of: agent) == .sameIncarnationAlive)
+            try #require(Darwin.kill(agent.pid, SIGCONT) == 0)
+            let marker = Data("background-ready".utf8)
+            try await writeForegroundFIFO(descriptor: inputWriter.descriptor(), bytes: marker)
+            let echoed = try await readForegroundBytes(
+                descriptor: agentOutputReader.descriptor(), byteCount: marker.count)
+            #expect(echoed == marker)
+        }
+    }
+
     func letAnotherProgramTakeForeground() async throws {
         let inputPath = try #require(successorInputPath)
         let outputPath = try #require(successorOutputPath)
@@ -166,6 +220,10 @@ struct ZmxForegroundFixture: Sendable {
     }
 
     func killOwnedSession() async throws {
+        if let ownership {
+            try await ownership.killSession(sessionId)
+            return
+        }
         let zmxPath = try #require(harness.zmxPath)
         var environment = ProcessInfo.processInfo.environment
         environment["ZMX_DIR"] = harness.zmxDir
@@ -340,4 +398,12 @@ struct TestForegroundSQLiteAccess: ForegroundObservationSQLiteAccess {
     func write<Output: Sendable>(_ operation: @Sendable (Database) throws -> Output) async throws -> Output {
         try await databaseQueue.write(operation)
     }
+}
+
+/// The evidence table shares the real Sessions writer and admitted generation with the observer.
+struct ZmxForegroundBindingContext: Sendable {
+    let paneID: UUID
+    let generationID: UUID
+    let database: DatabaseQueue
+    let ownership: ResumeEvidenceZmxEnvironment
 }

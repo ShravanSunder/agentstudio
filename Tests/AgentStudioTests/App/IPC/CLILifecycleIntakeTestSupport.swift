@@ -13,7 +13,7 @@ import Synchronization
 struct LifecycleIntakeFileFixture: Sendable {
     let rootURL: URL
     let storeURL: URL
-    let workspaceID = UUIDv7.generate()
+    let workspaceID: UUID
     let paneID: UUID
     let storeID: UUID
     let access: LifecycleTestSQLiteAccess
@@ -21,7 +21,7 @@ struct LifecycleIntakeFileFixture: Sendable {
     let ingestion: SessionsIngestion
     let members: LifecyclePaneMembership
     let refusals: LifecycleRefusalLedger
-    let intakes = LifecycleIntakeOwnerLedger()
+    let intakes: LifecycleIntakeOwnerLedger
     let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     static func make(rootURL existingRoot: URL? = nil, paneID: UUID = UUIDv7.generate()) async throws -> Self {
@@ -42,9 +42,19 @@ struct LifecycleIntakeFileFixture: Sendable {
             repository: repository, limits: .init(maximumPendingPerPane: 32, maximumPendingGlobal: 128), probe: { _ in }
         )
         return Self(
-            rootURL: prepared.0, storeURL: prepared.1, paneID: paneID, storeID: prepared.2, access: access,
+            rootURL: prepared.0, storeURL: prepared.1, workspaceID: UUIDv7.generate(),
+            paneID: paneID, storeID: prepared.2, access: access,
             repository: repository, ingestion: ingestion, members: LifecyclePaneMembership([paneID]),
-            refusals: LifecycleRefusalLedger())
+            refusals: LifecycleRefusalLedger(), intakes: LifecycleIntakeOwnerLedger())
+    }
+
+    /// A second pane in the same workspace uses the identical store, cursor and Sessions owner.
+    func sharingStore(for paneID: UUID) -> Self {
+        members.include(paneID)
+        return Self(
+            rootURL: rootURL, storeURL: storeURL, workspaceID: workspaceID,
+            paneID: paneID, storeID: storeID, access: access, repository: repository,
+            ingestion: ingestion, members: members, refusals: refusals, intakes: intakes)
     }
 
     func intake() -> CLILifecycleReportIntake {
@@ -191,6 +201,7 @@ final class LifecyclePaneMembership: Sendable {
     private let panes: Mutex<Set<UUID>>
     init(_ panes: Set<UUID>) { self.panes = Mutex(panes) }
     func contains(_ pane: UUID) -> Bool { panes.withLock { $0.contains(pane) } }
+    func include(_ pane: UUID) { panes.withLock { _ = $0.insert(pane) } }
     func retire(_ pane: UUID) { panes.withLock { _ = $0.remove(pane) } }
 }
 
