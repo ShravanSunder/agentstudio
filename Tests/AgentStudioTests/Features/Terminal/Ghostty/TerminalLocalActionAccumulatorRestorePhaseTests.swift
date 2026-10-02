@@ -128,6 +128,70 @@ struct TerminalLocalActionAccumulatorRestorePhaseTests {
 
         #expect(laterBatch.restorePhaseEnd == nil)
     }
+
+    /// F2 (review round 1, 2026-10-01): a drain already in flight has
+    /// already detached its batch -- `beginDrain` pulled whatever
+    /// `pendingRestorePhaseEnd` existed at THAT moment (nil here) -- before
+    /// `markRestorePhaseEnded` can run. Because the lane isn't idle,
+    /// `markRestorePhaseEnded` schedules nothing (`wasIdle` is false); only
+    /// `finishDrain` can still rescue the control. Before the fix,
+    /// `finishDrain` checked only `pending.hasWork` and returned `.idle`
+    /// with no follow-up, stranding it.
+    @Test("a restore-phase end landing while a drain is already in flight schedules a follow-up and is not lost")
+    func restorePhaseEndDuringAnInFlightDrainSchedulesFollowUp() throws {
+        let scheduleRecorder = RestorePhaseDrainRequestRecorder()
+        let followUpRecorder = RestorePhaseDrainRequestRecorder()
+        let accumulator = TerminalLocalActionAccumulator(
+            scheduleDrain: scheduleRecorder.record,
+            scheduleFollowUpDrain: followUpRecorder.record
+        )
+        let surfaceID = UUIDv7.generate()
+        let generation = RestoreGeneration(rawValue: 1)
+
+        // Arrange -- ordinary work schedules and begins a drain (phase ->
+        // draining), detaching its own batch before any restore-phase end
+        // exists.
+        _ = accumulator.offer(
+            .scrollbar(ScrollbarState(top: 0, bottom: 10, total: 10), observedAtMilliseconds: 1000),
+            for: surfaceID
+        )
+        #expect(scheduleRecorder.requests.count == 1)
+        let inFlightBatch = try #require(accumulator.beginDrain(for: surfaceID, lane: .immediate))
+        #expect(inFlightBatch.restorePhaseEnd == nil)
+
+        // Act -- input ends the restore phase while that drain is still in
+        // flight.
+        accumulator.markRestorePhaseEnded(surfaceID: surfaceID, generation: generation, contextBeforeControl: context)
+        #expect(followUpRecorder.requests.isEmpty, "markRestorePhaseEnded schedules nothing while the lane drains")
+
+        // The in-flight drain finishes with no additional ordinary work.
+        let completion = accumulator.finishDrain(for: surfaceID, lane: .immediate)
+
+        #expect(completion == .followUpScheduled)
+        #expect(followUpRecorder.requests.count == 1)
+
+        // The follow-up drain delivers the exact generation, exactly once.
+        let followUpBatch = try #require(accumulator.beginDrain(for: surfaceID, lane: .immediate))
+        #expect(followUpBatch.restorePhaseEnd?.generation == generation)
+        #expect(accumulator.finishDrain(for: surfaceID, lane: .immediate) == .idle)
+        #expect(followUpRecorder.requests.count == 1, "exactly one follow-up, never rescheduled again")
+    }
+
+    /// F2: `hasAnyPendingWork` gates both `finishDrain`'s retention decision
+    /// (would otherwise discard the whole `SurfaceState`, and with it
+    /// `pendingRestorePhaseEnd`, in the no-ordinary-work case) and every
+    /// other caller, including this public accessor.
+    @Test("a pending restore-phase end alone counts as pending work")
+    func pendingRestorePhaseEndCountsAsPendingWork() {
+        let recorder = RestorePhaseDrainRequestRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: recorder.record)
+        let surfaceID = UUIDv7.generate()
+
+        accumulator.markRestorePhaseEnded(
+            surfaceID: surfaceID, generation: RestoreGeneration(rawValue: 1), contextBeforeControl: context)
+
+        #expect(accumulator.hasPendingActions(for: surfaceID))
+    }
 }
 
 private final class RestorePhaseDrainRequestRecorder: @unchecked Sendable {

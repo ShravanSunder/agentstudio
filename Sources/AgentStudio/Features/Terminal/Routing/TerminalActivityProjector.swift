@@ -61,7 +61,7 @@ package actor TerminalActivityProjector {
         var outputBurst: TerminalOutputBurstState
         var scrollbarState: ScrollbarState?
         var isPinnedToBottom: Bool?
-        var didObserveFirstOutput = false
+        var didObserveFirstRender = false
         var unseenWindow: ActivityWindow?
         var activityWindow: ActivityWindow?
         var agentCandidate: ActivityWindow?
@@ -297,8 +297,8 @@ package actor TerminalActivityProjector {
             state.agentCandidate = nil
         }
 
-        let isFirstOutput = aggregate.latestTotalRows > 0 && !state.didObserveFirstOutput
-        state.didObserveFirstOutput = state.didObserveFirstOutput || aggregate.latestTotalRows > 0
+        let isFirstRender = aggregate.latestTotalRows > 0 && !state.didObserveFirstRender
+        state.didObserveFirstRender = state.didObserveFirstRender || aggregate.latestTotalRows > 0
         paneStates[paneID] = state
         var outcomes: [TerminalActivityProjectionOutcome] = []
         if let replacedSurfaceID {
@@ -319,8 +319,8 @@ package actor TerminalActivityProjector {
                 )
             )
         }
-        if isFirstOutput, !isInRestorePhase {
-            outcomes.append(.firstOutput(surfaceID: surfaceID, paneID: paneID))
+        if isFirstRender, !isInRestorePhase {
+            outcomes.append(.firstRender(surfaceID: surfaceID, paneID: paneID))
         }
         for isPinnedToBottom in observationTransitions {
             outcomes.append(

@@ -65,7 +65,7 @@ extension E2ESerializedTests {
                     sessionId: sessionID.rawValue,
                     commandArgs: ["/bin/sh", "-c", "sleep 60"]
                 )
-                let socketAppeared = await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true)
+                let socketAppeared = try await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true)
                 try #require(socketAppeared, "zmx session socket never appeared")
 
                 // Act
@@ -100,7 +100,7 @@ extension E2ESerializedTests {
                     sessionId: sessionID.rawValue,
                     commandArgs: ["/bin/sh", "-c", "sleep 60"]
                 )
-                let socketAppeared = await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true)
+                let socketAppeared = try await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true)
                 try #require(socketAppeared, "zmx session socket never appeared")
                 let baselineInventory = await backend.discoverSessionInventory()
                 guard case .complete(let baselineEntries) = baselineInventory,
@@ -154,11 +154,11 @@ extension E2ESerializedTests {
                     sessionId: liveSessionID.rawValue,
                     commandArgs: ["/bin/sh", "-c", "sleep 60"]
                 )
-                let stoppedSocketAppeared = await harness.waitForSessionSocket(
+                let stoppedSocketAppeared = try await harness.waitForSessionSocket(
                     sessionId: stoppedSessionID.rawValue, exists: true
                 )
                 try #require(stoppedSocketAppeared, "zmx session socket never appeared")
-                let liveSocketAppeared = await harness.waitForSessionSocket(
+                let liveSocketAppeared = try await harness.waitForSessionSocket(
                     sessionId: liveSessionID.rawValue, exists: true
                 )
                 try #require(liveSocketAppeared, "zmx session socket never appeared")

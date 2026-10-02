@@ -150,13 +150,52 @@ final class WorkspaceSurfaceCoordinator {
     /// shorter `inventoryProbeDeadline` the launch-restore cohort's own
     /// probe uses -- this runs one pane at a time, off the startup path.
     lazy var postAttachRecreationProbe: (any ZmxSessionRestoreProbing)? = ZmxBackend(configuration: sessionConfig)
+    /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
+    /// not pull): panes mounted warm/unverified and still waiting for their
+    /// post-attach recreation check's own first render. `TerminalActivityRouter`'s
+    /// existing `.firstRender` outcome arm (already unconditional for
+    /// warm/unverified panes -- they never arm a restore phase, so
+    /// `consumeAggregateState`'s `!isInRestorePhase` gate never blocks
+    /// them) calls the injected `onFirstRender` callback it's composed
+    /// with in `AppDelegate.bootStartTerminalActivityRouter`, which
+    /// forwards here via `receivePostAttachFirstRender(paneID:)`. A pane
+    /// still present here when it retires never gets a render; see
+    /// `retirePanesPermanently`.
+    var pendingPostAttachRecreationChecksByPaneID: [UUID: PendingPostAttachRecreationCheck] = [:]
     /// Ownership shape matches `coldStartObservationTasksByPaneID`:
     /// cancellable on retirement/teardown, self-removing, test-awaitable.
     var postAttachRecreationCheckTasksByPaneID: [UUID: Task<Void, Never>] = [:]
     /// Detection only (Program Design item 5's own stop: no UI mechanism
     /// exists yet; `InboxNotificationRouter` stays retired). `nil` in
     /// production, a `LocalFactSource.sink` in tests.
-    var postAttachRecreationCheckFactSink: (@Sendable (UUID, PaneRecreationCheckResult) -> Void)?
+    var postAttachRecreationCheckFactSink: (@Sendable (UUID, PaneRecreationCheckOutcome) -> Void)?
+    /// R2-2 (review round 2, Lead 2026-10-01): `executeRepair`'s own
+    /// `restorePhaseLatch` carry-across (A5) only covers a replacement that
+    /// succeeds. A failed `.recreateSurface` (creation/attachment failure)
+    /// has no surface left to hold the generation on, but the projector's
+    /// own phase survives the failure by design (SR6b) -- this is where
+    /// that generation waits until a later repair, `.recreateSurface` or
+    /// `.createMissingView`, actually succeeds and reinstalls it. Cleared
+    /// on successful reinstall or permanent retirement (`retirePanesPermanently`),
+    /// never on a failed attempt alone.
+    var pendingRestorePhaseLatchesByPaneID: [UUID: RestoreGeneration] = [:]
+    /// Issues fresh, launch-unique `RestoreGeneration` values (SR6b;
+    /// Program Design item 13). Moved here from the now-deleted
+    /// `RestoreGenerationAllocator` (a process-wide singleton the repo's
+    /// `agentstudio_no_new_process_singletons` lint now forbids,
+    /// agent-studio#441): `RestoreGeneration` is compared only for
+    /// equality/dedup, never ordered (its own doc comment), so uniqueness
+    /// per coordinator -- the one production owner that arms a restore
+    /// phase -- is sufficient; generations are only ever compared within
+    /// one pane's own history.
+    private var nextRestoreGenerationValue: UInt64 = 1
+    /// Not `private`: `WorkspaceSurfaceCoordinator+TerminalContentMounting.swift`'s
+    /// `mountPreparedTerminalContent` is the one call site, in a different
+    /// file -- `private` is file-scoped and does not cross that boundary.
+    func allocateRestoreGeneration() -> RestoreGeneration {
+        defer { nextRestoreGenerationValue &+= 1 }
+        return RestoreGeneration(rawValue: nextRestoreGenerationValue)
+    }
     var bridgePaneRetirementsRequiringRuntimeUnregister: Set<UUID> = []
     var bridgePaneRetirementsRequiringRestore: Set<UUID> = []
     var filesystemSyncTask: Task<Void, Never>?
@@ -364,6 +403,8 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         postAttachRecreationCheckTasksByPaneID.removeAll()
+        pendingPostAttachRecreationChecksByPaneID.removeAll()
+        pendingRestorePhaseLatchesByPaneID.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
@@ -441,6 +482,18 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         postAttachRecreationCheckTasksByPaneID.removeAll()
+        // R3-2 (review round 3, Lead decision 2026-10-02): every pane still
+        // waiting for its first output when the whole coordinator shuts
+        // down never gets one either -- same reason, same one-disposition
+        // shape as `retirePanesPermanently`'s existing per-pane close
+        // (above) and `finishViewTeardown`'s new one
+        // (WorkspaceSurfaceCoordinator+ViewLifecycle.swift). This used to
+        // just clear the map silently.
+        for paneID in pendingPostAttachRecreationChecksByPaneID.keys {
+            postAttachRecreationCheckFactSink?(paneID, .uncheckable(.paneUnavailableBeforeFirstRender))
+        }
+        pendingPostAttachRecreationChecksByPaneID.removeAll()
+        pendingRestorePhaseLatchesByPaneID.removeAll()
 
         await repositoryFactDemandCoordinator.shutdown()
         await filesystemProjectionIndex.shutdown()
@@ -537,6 +590,17 @@ final class WorkspaceSurfaceCoordinator {
             // SR2a: a still-running post-attach recreation check is no
             // longer meaningful once the pane retires.
             postAttachRecreationCheckTasksByPaneID[paneID]?.cancel()
+            // A6: a pane still waiting for its first output when it retires
+            // never gets one -- record the honest reason instead of leaving
+            // it pending forever (no task to cancel here: nothing has
+            // started yet, only a registration).
+            if pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneID) != nil {
+                postAttachRecreationCheckFactSink?(paneID, .uncheckable(.paneUnavailableBeforeFirstRender))
+            }
+            // R2-2: a pane retiring permanently with no surface left to
+            // reinstall its preserved generation onto never gets one --
+            // there is no later repair to wait for.
+            pendingRestorePhaseLatchesByPaneID.removeValue(forKey: paneID)
         }
     }
 

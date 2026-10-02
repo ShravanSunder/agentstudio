@@ -598,6 +598,14 @@ extension AppDelegate {
                 uniqueKeysWithValues: contentMountCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
             )
         )
+        // One resolver instance, reused below: `classifyTerminalRestoreKinds`
+        // takes it as a bound, unapplied method reference
+        // (`classifyRestoreKinds(for:publish:)` has no default-valued
+        // parameters, so that reference resolves cleanly); constructing a
+        // second instance here would just recapture `repositoryMainFolder`'s
+        // topology snapshot for no reason.
+        let terminalRestoreKindResolver = makeTerminalRestoreKindResolver(
+            sessionConfiguration: coordinator.sessionConfig)
         let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
             cohort: contentMountCohort,
             viewRegistry: viewRegistry,
@@ -609,9 +617,7 @@ extension AppDelegate {
             placeholderTransitionHandler: { [weak coordinator] pane, mode in
                 coordinator?.registerTerminalPlaceholderIfNeeded(for: pane, mode: mode)
             },
-            classifyTerminalRestoreKinds: makeTerminalRestoreKindResolver(
-                sessionConfiguration: coordinator.sessionConfig
-            ).classifyRestoreKinds(for:publish:),
+            classifyTerminalRestoreKinds: terminalRestoreKindResolver.classifyRestoreKinds(for:publish:),
             resolveColdResumePlan: makeColdResumePlanResolver()
         )
         let observer = restoreForegroundObserver

@@ -3,8 +3,23 @@ import AgentStudioInfrastructure
 import AgentStudioTerminal
 import Foundation
 
+/// Decides SR1/SR2/SR6's restore kind (E4) for every zmx-provider pane in
+/// one mount, before terminal activation runs (Program Design item 1).
+/// Bridges Core (`ZmxSessionInventory`, `ZmxSessionRestoreProbing`) and
+/// Features (`TerminalRestoreKind`) — neither module may import the other,
+/// so this classification belongs at the App layer, where both are already
+/// visible.
+///
 /// App joins Core's inventory and Terminal's plan vocabulary. Classification
-/// streams off-main; the existing whole-map reader collects that same stream.
+/// streams off-main through `classifyRestoreKinds` (`@concurrent
+/// nonisolated`, amended 2026-10-01, A1 review): descriptor filtering, the
+/// per-pane identity observation, kind mapping and fallback-plan
+/// construction all run there, matching the Program Design's "What runs
+/// where" — inventory -> restore kind, observation -> classification, and
+/// resume evidence all stay off-main. The MainActor allowance at PD:464 is
+/// for pure command choice (`TerminalRestoreRuntime`'s own switch over an
+/// already-decided kind), not this classification. `resolveRestoreKinds` is
+/// the existing whole-map reader that collects that same stream.
 struct TerminalRestoreKindResolver: Sendable {
     private let sessionConfiguration: SessionConfiguration
     /// Nil when zmx couldn't be resolved at boot (`SessionConfiguration
@@ -25,9 +40,20 @@ struct TerminalRestoreKindResolver: Sendable {
         self.repositoryMainFolder = repositoryMainFolder
     }
 
+    /// `observeDerivationExecutionContext` (test technique amendment, Lead
+    /// 2026-10-01; A1 advisor review): a no-op in production, called as the
+    /// first statement here so a test can record this call's real execution
+    /// context (e.g. `Thread.isMainThread`) as a structural, deterministic
+    /// fact instead of racing it against other MainActor work — the repo's
+    /// own rule against a verdict that depends on machine speed. Since this
+    /// whole function is `@concurrent nonisolated`, recording here proves
+    /// the same off-main guarantee for every call, including the per-pane
+    /// fan-out `classifyRestoreKinds` performs underneath it.
     @concurrent nonisolated func resolveRestoreKinds(
-        for descriptors: [TerminalActivationDescriptor]
+        for descriptors: [TerminalActivationDescriptor],
+        observeDerivationExecutionContext: @Sendable () -> Void = {}
     ) async -> [PaneId: TerminalRestoreKind] {
+        observeDerivationExecutionContext()
         let (stream, continuation) = AsyncStream.makeStream(
             of: (PaneId, TerminalRestoreKind).self, bufferingPolicy: .unbounded)
         async let classification: Void = classifyRestoreKinds(for: descriptors) { paneID, kind in
@@ -41,6 +67,10 @@ struct TerminalRestoreKindResolver: Sendable {
         return result
     }
 
+    /// The streaming entry: publishes each pane's restore kind as soon as
+    /// its own classification settles, instead of waiting for the whole
+    /// batch. `resolveRestoreKinds` above collects this same stream into a
+    /// map for callers that still want the old whole-map shape.
     @concurrent nonisolated func classifyRestoreKinds(
         for descriptors: [TerminalActivationDescriptor],
         publish: @Sendable (PaneId, TerminalRestoreKind) async -> Void

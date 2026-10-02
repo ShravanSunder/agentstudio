@@ -13,19 +13,6 @@ package struct RestoreGeneration: Sendable, Equatable, Hashable {
     }
 }
 
-/// Issues fresh, launch-unique `RestoreGeneration` values. MainActor-confined
-/// because arming always happens from the MainActor activation path; a
-/// single incrementing counter needs no further synchronization there.
-@MainActor
-package enum RestoreGenerationAllocator {
-    private static var nextValue: UInt64 = 1
-
-    package static func allocate() -> RestoreGeneration {
-        defer { nextValue &+= 1 }
-        return RestoreGeneration(rawValue: nextValue)
-    }
-}
-
 /// The result of arming a cold pane's restore phase (SR6b; Program Design
 /// item 13, choice 13's "Arming"). `.armed` covers both "the router was
 /// already bound" and "the router bound while we waited" — activation never

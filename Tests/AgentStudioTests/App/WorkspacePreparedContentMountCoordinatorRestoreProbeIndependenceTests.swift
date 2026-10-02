@@ -44,7 +44,7 @@ struct MountCoordinatorRestoreProbeIndependenceTests {
             viewRegistry: registry,
             terminalAdmissionPort: RecordingPreparedContentTerminalPort(descriptors: [descriptor]),
             nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort(),
-            resolveTerminalRestoreKinds: resolver.resolveRestoreKinds
+            resolveTerminalRestoreKinds: { descriptors in await resolver.resolveRestoreKinds(for: descriptors) }
         )
         await coordinator.installTerminalGeometryAvailability([descriptor.paneID])
         let windowLifecycleStore = WindowLifecycleAtom()
