@@ -12,23 +12,6 @@ import typing as t
 import urllib.parse
 
 CODE_ROOTS = {"Tests", "Tools", "BridgeWeb", "web", "scripts"}
-CODE_SUFFIXES = {
-    ".swift",
-    ".sh",
-    ".py",
-    ".ts",
-    ".tsx",
-    ".js",
-    ".mjs",
-    ".cjs",
-    ".json",
-    ".toml",
-    ".yml",
-    ".yaml",
-    ".astro",
-    ".html",
-    ".rb",
-}
 AGENT_DOC_NAMES = {"AGENTS.md", "CLAUDE.md"}
 # Literal rooted paths are retained even when a referenced doc was deleted.
 DOC_PATH = re.compile(r"\bdocs/[\w./+*?%-]+\.[\w]+\b")
@@ -89,14 +72,17 @@ def pinned_docs(root: pathlib.Path) -> t.List[str]:
     for path in tracked:
         file = root / path
         agent_doc = pathlib.PurePosixPath(path).name in AGENT_DOC_NAMES
-        code_reader = (
-            path.split("/", 1)[0] in CODE_ROOTS and file.suffix in CODE_SUFFIXES
-        )
+        # Scan all tracked inputs in the owning roots: CSS, Markdown used by
+        # tooling, extensionless scripts and future formats can name doc inputs.
+        # A file-type whitelist would silently miss readers added later.
+        code_reader = path.split("/", 1)[0] in CODE_ROOTS
         if not agent_doc and not code_reader:
             continue
         if agent_doc:
             pins.add(path)
-        contents = file.read_text(encoding="utf-8")
+        # Literal ASCII paths remain visible in opaque fixture/assets too;
+        # undecodable binary bytes are not documentation path characters.
+        contents = file.read_bytes().decode("utf-8", errors="ignore")
         pins.update(literal_doc_paths(root, path, contents))
         if agent_doc:
             # Architecture lint opens linked targets and inline repository paths

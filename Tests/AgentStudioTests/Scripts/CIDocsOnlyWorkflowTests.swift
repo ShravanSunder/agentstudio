@@ -89,6 +89,8 @@ extension CITopologyWorkflowTests {
             try fixture.write("docs/contract.md", "# Contract")
             try fixture.write("docs/contract.json", "{}")
             try fixture.write("\(codeRoot)/data-reader.swift", "let path = \"docs/contract.json\"")
+            try fixture.write("docs/diagram.svg", "<svg />")
+            try fixture.write("\(codeRoot)/style.css", "background-image: url(\"docs/diagram.svg\");")
             let base = try await fixture.commit("base")
             try fixture.write("docs/contract.md", "# Changed")
             let head = try await fixture.commit("contract")
@@ -98,6 +100,11 @@ extension CITopologyWorkflowTests {
             #expect(
                 try await fixture.classify(base: head, head: dataHead) == false,
                 "\(codeRoot) did not pin its data input")
+            try fixture.write("docs/diagram.svg", "<svg><g /></svg>")
+            let styleHead = try await fixture.commit("style input")
+            #expect(
+                try await fixture.classify(base: dataHead, head: styleHead) == false,
+                "\(codeRoot) did not scan its CSS input")
         }
     }
 
