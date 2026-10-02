@@ -35,7 +35,7 @@
     },
     {
       "name": "command",
-      "argv": ["command.execute", "scrollToBottom", "--arg", "workspaceWindowId=${workspaceWindowId}", "--arg", "paneSelector=${paneId}"],
+      "argv": ["command.execute", "--command-id", "scrollToBottom", "--arg", "workspaceWindowId=${workspaceWindowId}", "--arg", "paneSelector=${paneId}"],
       "budgetClass": "other",
       "fixtureRequirement": "debugRuntime"
     },

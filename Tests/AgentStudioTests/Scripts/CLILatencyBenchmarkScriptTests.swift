@@ -105,8 +105,44 @@ struct CLILatencyBenchmarkScriptTests {
         let hook = try #require(families.first { $0["family"] as? String == "hook" })
         #expect(hook["verdict"] as? String == "NOT MEASURED")
         #expect(report["failureStage"] as? String == "hook")
+        #expect(report["failurePhase"] as? String == "warmup")
+        #expect(report["failureClass"] as? String == "diagnosticOutput")
         #expect(report["cleanup"] as? String == "closedOwnedPane")
         #expect(report["verdict"] as? String == "FAIL")
+    }
+
+    @Test("command warmup failures report only a closed reason class, never raw diagnostic or argv values")
+    func commandFailureClassIsRedacted() async throws {
+        let fixture = try BenchmarkScriptFixture(failingCommand: true)
+        defer { fixture.cleanup() }
+        let output = try await runHarness(fixture)
+        #expect(output.terminationStatus == 1)
+        let reportURL = fixture.outputURL.appendingPathComponent("report.json")
+        let reportData = try Data(contentsOf: reportURL)
+        let report = try object(reportData)
+        #expect(report["failureStage"] as? String == "command")
+        #expect(report["failurePhase"] as? String == "warmup")
+        #expect(report["failureClass"] as? String == "argumentsRejected")
+        #expect(report["failureExitCode"] as? Int == 1)
+        #expect(report["failureSignal"] as? Int == 0)
+        #expect(report["cleanup"] as? String == "closedOwnedPane")
+        #expect(report["verdict"] as? String == "FAIL")
+        let fields = try #require(report["families"] as? [[String: Any]])
+        let command = try #require(fields.first { $0["family"] as? String == "command" })
+        #expect(command["verdict"] as? String == "NOT MEASURED")
+        let saved = try #require(String(data: reportData, encoding: .utf8))
+        let samples = try String(
+            contentsOf: fixture.outputURL.appendingPathComponent("samples.jsonl"), encoding: .utf8)
+        let standardOutput = try #require(String(data: output.standardOutput, encoding: .utf8))
+        #expect(standardOutput.contains("failure stage=command phase=warmup class=argumentsRejected"))
+        for text in [saved, samples, standardOutput] {
+            #expect(!text.contains("PRIVATE-DIAGNOSTIC-SENTINEL"))
+            #expect(!text.contains(fixture.paneId.uuidString))
+            #expect(!text.contains("scrollToBottom"))
+            #expect(!text.contains("--command-id"))
+            #expect(!text.contains(BenchmarkScriptFixture.fakeToken))
+            #expect(!text.contains(BenchmarkScriptFixture.fakeSocket))
+        }
     }
 
     private func object(_ data: Data) throws -> [String: Any] {
@@ -134,7 +170,7 @@ private struct BenchmarkScriptFixture {
     var recordsURL: URL { root.appendingPathComponent("calls.txt") }
     var outputURL: URL { root.appendingPathComponent("results") }
 
-    init(failingHooks: Bool = false) throws {
+    init(failingHooks: Bool = false, failingCommand: Bool = false) throws {
         paneId = UUIDv7.generate()
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cli-latency-\(UUIDv7.generate())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -166,7 +202,13 @@ private struct BenchmarkScriptFixture {
             if ($method eq 'pane.snapshot') { $result = {pane=>{id=>$pane}}; }
             if ($method eq 'session.query') { $result = {paneId=>$pane, sourceHealth=>(-e $state ? 'live':'unbound'), state=>'running', origin=>'reported'}; }
             if ($method eq 'terminal.status') { $result = {isReady=>JSON::PP::true, paneId=>$pane}; }
-            if ($method eq 'command.execute') { $result = {kind=>'applied'}; }
+            if ($method eq 'command.execute') {
+                if ($ENV{BENCHMARK_TEST_FAIL_COMMAND} || ($ARGV[1] // '') ne '--command-id' || ($ARGV[2] // '') ne 'scrollToBottom') {
+                    print STDERR $json->encode({reason=>'invalidParams', expected=>'PRIVATE-DIAGNOSTIC-SENTINEL', commandId=>$pane});
+                    exit 1;
+                }
+                $result = {kind=>'applied'};
+            }
             print $json->encode($result);
             """#
         try cli.write(to: cliURL, atomically: true, encoding: .utf8)
@@ -188,6 +230,7 @@ private struct BenchmarkScriptFixture {
                 "BENCHMARK_TEST_PANE": paneId.uuidString,
                 "BENCHMARK_TEST_RUNTIME": runtimeId,
                 "BENCHMARK_TEST_FAIL_HOOK": failingHooks ? "1" : "0",
+                "BENCHMARK_TEST_FAIL_COMMAND": failingCommand ? "1" : "0",
             ],
         ]).write(to: fixtureURL)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixtureURL.path)

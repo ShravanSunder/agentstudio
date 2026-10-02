@@ -86,7 +86,7 @@ sub run_process {
     my $stderr = <$stderr_file> // '';
     return {
         duration => $duration, exitCode => $status >> 8, signal => $status & 127,
-        stdout => $stdout, stderrPresent => length($stderr) ? JSON::PP::true : JSON::PP::false,
+        stdout => $stdout, stderr => $stderr, stderrPresent => length($stderr) ? JSON::PP::true : JSON::PP::false,
     };
 }
 
@@ -176,6 +176,7 @@ my $report = {
 open my $samples_file, '>:raw', "$output_directory/samples.jsonl" or die "Cannot save samples\n";
 my $owns_pane = 0;
 my $stage = 'debugIdentity';
+my $failure_context;
 
 sub invoke {
     my ($arguments, $input, $environment) = @_;
@@ -197,6 +198,45 @@ sub hook {
     }, \%pane_env);
     die "Hook warmup was not delivered\n" if $result->{exitCode} || $result->{signal} || $result->{stderrPresent};
 }
+# Only controlled classes cross into reports; no stderr text, field paths,
+# command identifiers, required scopes or payload values are copied out.
+sub call_failure_class {
+    my ($family_name, $result) = @_;
+    return 'processSignal' if $result->{signal};
+    if ($result->{exitCode} || $result->{stderrPresent}) {
+        my $diagnostic = eval { $json->decode($result->{stderr}) };
+        my %known_reasons = (
+            invalidArguments => 'argumentsRejected', invalidParams => 'argumentsRejected',
+            unauthorized => 'authorizationRejected', missingGrant => 'authorizationRejected',
+            notYetAllowed => 'authorizationRejected', refusedForAgent => 'authorizationRejected',
+            unauthenticated => 'authenticationRejected', invalidHandle => 'targetRejected',
+            unknownCommand => 'unknownCommand', stateUnavailable => 'stateUnavailable',
+            unsupportedCommand => 'unsupportedCommand',
+        );
+        if (!$@ && ref($diagnostic) eq 'HASH' && !ref($diagnostic->{reason})
+            && exists $known_reasons{$diagnostic->{reason} // ''}) {
+            return $known_reasons{$diagnostic->{reason}};
+        }
+        return $result->{exitCode} ? 'unclassifiedCLIExit' : 'diagnosticOutput';
+    }
+    return undef if $family_name eq 'hook' || $family_name eq 'startup';
+    my $decoded = eval { $json->decode($result->{stdout}) };
+    return 'invalidJSONResult' if $@;
+    return 'invalidResultShape' unless ref($decoded) eq 'HASH';
+    if ($family_name eq 'command' && ($decoded->{kind} // '') ne 'applied') {
+        my %unavailable_reasons = (
+            featureUnavailable => 'commandUnavailable.featureUnavailable',
+            noApplicableTarget => 'commandUnavailable.noApplicableTarget',
+            stateUnavailable => 'commandUnavailable.stateUnavailable',
+        );
+        return $unavailable_reasons{$decoded->{reason}}
+            if ($decoded->{kind} // '') eq 'unavailable' && !ref($decoded->{reason})
+            && exists $unavailable_reasons{$decoded->{reason} // ''};
+        return 'unexpectedCommandResult';
+    }
+    return undef;
+}
+
 sub measure_family {
     my ($family) = @_;
     my @samples;
@@ -205,18 +245,21 @@ sub measure_family {
         $substitutions{sampleId} = "benchmark-$$-$family->{name}-$index";
         my $workload = substitute($family);
         my $result = invoke($workload->{argv}, $workload->{stdin}, $environment);
-        my $valid = !$result->{exitCode} && !$result->{signal} && !$result->{stderrPresent};
-        if ($family->{name} ne 'hook' && $family->{name} ne 'startup') {
-            my $decoded = eval { $json->decode($result->{stdout}) };
-            $valid &&= !$@ && ref($decoded) eq 'HASH';
-            $valid &&= ($decoded->{kind} // '') eq 'applied' if $family->{name} eq 'command';
+        my $failure_class = call_failure_class($family->{name}, $result);
+        my $valid = !defined $failure_class;
+        if (!$index && !$valid) {
+            $failure_context = {
+                phase => 'warmup', reasonClass => $failure_class,
+                exitCode => $result->{exitCode}, signal => $result->{signal},
+            };
+            die "Family warmup failed\n";
         }
-        die "Family warmup failed\n" if !$index && !$valid;
         next unless $index; # One untimed warmup; exactly 50 retained samples.
         my $sample = {
             family => $family->{name}, sample => $index, 'cli.call_total_ms' => $result->{duration},
             outcome => $valid ? 'passed' : 'failed', exitCode => $result->{exitCode},
             signal => $result->{signal}, stderrPresent => $result->{stderrPresent},
+            failureClass => $failure_class,
         };
         push @samples, $sample;
         print {$samples_file} $json->encode($sample), "\n" or die "Cannot save benchmark sample\n";
@@ -274,6 +317,10 @@ my $failed_family_count = scalar grep { $_->{verdict} ne 'PASS' } @{$report->{fa
 $report->{verdict} = $completed && $report->{cleanup} eq 'closedOwnedPane'
     && $failed_family_count == 0 ? 'PASS' : 'FAIL';
 $report->{failureStage} = $failure ? $stage : undef; # Controlled labels only, never exception values or IO paths.
+$report->{failureClass} = $failure ? ($failure_context->{reasonClass} // 'unclassifiedHarnessFailure') : undef;
+$report->{failurePhase} = $failure ? ($failure_context->{phase} // 'preflightOrWarmup') : undef;
+$report->{failureExitCode} = $failure_context->{exitCode} if $failure_context;
+$report->{failureSignal} = $failure_context->{signal} if $failure_context;
 close $samples_file or die "Cannot close benchmark samples\n";
 emit_json("$output_directory/report.json", $report);
 for my $family (@{$report->{families}}, @{$report->{notMeasured}}) {
@@ -281,6 +328,9 @@ for my $family (@{$report->{families}}, @{$report->{notMeasured}}) {
     printf " p95=%.3fms budget=%dms calls=%d failed=%d", @$family{qw(p95Ms budgetMs sampleCount failedCalls)}
         if defined $family->{p95Ms};
     print "\n";
+}
+if ($failure) {
+    print "failure stage=$report->{failureStage} phase=$report->{failurePhase} class=$report->{failureClass}\n";
 }
 print "cleanup=$report->{cleanup}\ncli.call_total_ms boundary: $report->{boundary}\n";
 print "startup is a linked-binary local-help proxy; line/title/notify remain NOT MEASURED\n";
