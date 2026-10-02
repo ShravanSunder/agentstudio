@@ -40,10 +40,6 @@ package final class TerminalActivityRouter {
     /// no new actor hop over the trace call beside it -- typed
     /// `@MainActor @Sendable`, matching `recordSettledActivityStatus`'s own
     /// shape below, so the call at the `.firstRender` arm needs no `await`.
-    /// R2-3 (Lead decision 2026-10-02): renamed from `onFirstOutput` --
-    /// `startupTraceRecorder?.recordFirstOutput` beside it is a separate
-    /// consumer (startup-trace telemetry, flagged to the Lead separately)
-    /// and keeps its own name unchanged.
     private let onFirstRender: (@MainActor @Sendable (UUID) -> Void)?
     private let surfaceIDForPaneID: @MainActor (UUID) -> UUID?
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool

@@ -36,14 +36,13 @@ struct TerminalActivityCompactUpdate: Sendable, Equatable {
 
 enum TerminalActivityProjectionOutcome: Sendable, Equatable {
     case compactStateChanged(TerminalActivityCompactUpdate)
-    /// R2-3 (Lead decision 2026-10-02): named for what this actually is --
-    /// the pane's first scrollbar sample with a positive row total, which
-    /// Ghostty's own renderer emits on its unconditional first frame
-    /// (`PageList.zig:687`'s viewport-sized `total_rows`, `scrollbar()`
-    /// returning it with zero scrollback, `Thread.zig:242-243`'s initial
-    /// wakeup firing independent of the IO thread that owns the PTY) --
-    /// never a claim that the PTY has delivered a byte. Was `.firstOutput`;
-    /// renamed for honesty, not behavior: same trigger, same timing.
+    /// Named for what this actually is -- the pane's first scrollbar
+    /// sample with a positive row total, which Ghostty's own renderer
+    /// emits on its unconditional first frame (`PageList.zig:687`'s
+    /// viewport-sized `total_rows`, `scrollbar()` returning it with zero
+    /// scrollback, `Thread.zig:242-243`'s initial wakeup firing
+    /// independent of the IO thread that owns the PTY) -- never a claim
+    /// that the PTY has delivered a byte.
     case firstRender(surfaceID: UUID, paneID: UUID)
     case paneObservationChanged(surfaceID: UUID, paneID: UUID, isPinnedToBottom: Bool)
     case unseenActivitySettled(surfaceID: UUID, paneID: UUID, activity: TerminalSettledActivity)
