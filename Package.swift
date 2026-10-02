@@ -17,6 +17,10 @@ let package = Package(
             name: "agentstudio-sqlite-crash-fixture",
             targets: ["AgentStudioSQLiteCrashFixture"]
         ),
+        .executable(
+            name: "agentstudio-cli-store-process-fixture",
+            targets: ["AgentStudioCLIStoreProcessFixture"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
@@ -28,7 +32,7 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
         .package(
-            url: "https://github.com/ShravanSunder/agentstudio-git.git",
+            url: "https://github.com/getagentstudio/agentstudio-git.git",
             revision: "87193257e55e7516e43bb1e8338b929c586355ae"
         ),
     ],
@@ -37,6 +41,7 @@ let package = Package(
             name: "AgentStudio",
             dependencies: [
                 "AgentStudioAppIPC",
+                "AgentStudioCLIStore",
                 "AgentStudioBridge",
                 "AgentStudioCodeViewer",
                 "AgentStudioCommandBar",
@@ -299,8 +304,18 @@ let package = Package(
             ]
         ),
         .target(
+            name: "AgentStudioCLIStore",
+            dependencies: [
+                "AgentStudioPrimitives",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Sources/AgentStudioCLIStore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
             name: "AgentStudioIPCClientCore",
             dependencies: [
+                "AgentStudioCLIStore",
                 "AgentStudioIPCTransport",
                 "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
@@ -356,6 +371,25 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        .executableTarget(
+            name: "AgentStudioCLIStoreProcessFixture",
+            dependencies: ["AgentStudioCLIStore", "AgentStudioPrimitives"],
+            path: "Tests/AgentStudioCLIStoreProcessFixture",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "AgentStudioCLIStoreTests",
+            dependencies: [
+                "AgentStudioCLIStore",
+                "AgentStudioCLIStoreProcessFixture",
+                "AgentStudioPrimitives",
+                "AgentStudioTestHarness",
+                "AgentStudioTestSupport",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Tests/AgentStudioCLIStoreTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
             name: "AgentStudioTestHarness",
@@ -523,6 +557,7 @@ let package = Package(
         .testTarget(
             name: "AgentStudioTerminalTests",
             dependencies: [
+                "AgentStudioTestHarness",
                 "AgentStudioCore",
                 "AgentStudioInfrastructure",
                 "AgentStudioSharedComponents",
@@ -578,12 +613,15 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 "AgentStudioAppIPC",
+                "AgentStudioCLIStore",
+                "AgentStudioCore",
                 "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioInfrastructure",
                 "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Tests/AgentStudioAppIPCTests",
             swiftSettings: [
@@ -596,6 +634,7 @@ let package = Package(
                 "AgentStudioSessions",
                 "AgentStudioCore",
                 "AgentStudioInfrastructure",
+                "AgentStudioTestHarness",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Tests/AgentStudioTests/Features/Sessions",
@@ -605,6 +644,7 @@ let package = Package(
             name: "AgentStudioIPCClientTests",
             dependencies: [
                 "AgentStudioIPCClientCore",
+                "AgentStudioCLIStore",
                 "AgentStudioIPCTransport",
                 "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
@@ -623,6 +663,7 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 "AgentStudioAppIPC",
+                "AgentStudioCLIStore",
                 "AgentStudioBridge",
                 "AgentStudioCodeViewer",
                 "AgentStudioCommandBar",

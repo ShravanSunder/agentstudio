@@ -21,6 +21,7 @@ package enum WorkspaceLocalMigrations {
         registerPaneOnlyCredentialRecords(in: &migrator)
         registerBindingProviderEndFact(in: &migrator)
         registerPaneForegroundObservation(in: &migrator)
+        registerCLIOutboxCursor(in: &migrator)
         return migrator
     }
 

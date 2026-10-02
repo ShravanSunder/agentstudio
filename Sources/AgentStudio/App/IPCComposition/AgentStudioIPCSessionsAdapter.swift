@@ -71,6 +71,14 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         paneId: UUID,
         params: IPCSessionReportParams
     ) async throws -> IPCSessionReportResult {
+        try await recordDeliberateReport(paneId: paneId, params: params, commitParticipant: nil)
+    }
+
+    func recordDeliberateReport(
+        paneId: UUID,
+        params: IPCSessionReportParams,
+        commitParticipant: (any SessionsCommitParticipant)?
+    ) async throws -> IPCSessionReportResult {
         let reportedAt = now()
         let mutation: SessionsMutation =
             switch params.kind {
@@ -101,7 +109,9 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                 )
             }
         do {
-            _ = try await ingestion.submit(correlationId: params.correlationId, mutation: mutation)
+            _ = try await ingestion.submit(
+                correlationId: params.correlationId, mutation: mutation,
+                commitParticipant: commitParticipant)
         } catch {
             throw Self.portError(from: error)
         }
@@ -118,6 +128,14 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     func recordAgentMessage(
         paneId: UUID,
         params: IPCSessionMessageParams
+    ) async throws -> IPCSessionMessageResult {
+        try await recordAgentMessage(paneId: paneId, params: params, commitParticipant: nil)
+    }
+
+    func recordAgentMessage(
+        paneId: UUID,
+        params: IPCSessionMessageParams,
+        commitParticipant: (any SessionsCommitParticipant)?
     ) async throws -> IPCSessionMessageResult {
         // Attribution is decided before submission so one correlation always
         // carries one semantic fingerprint. A binding that changes between
@@ -138,7 +156,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                         freshness: admissionFreshness,
                         receivedAt: now()
                     )
-                )
+                ),
+                commitParticipant: commitParticipant
             )
             outcome = submission.outcome
             if submission.disposition == .inserted { await foregroundLookSink?(.agentMessage, paneId) }

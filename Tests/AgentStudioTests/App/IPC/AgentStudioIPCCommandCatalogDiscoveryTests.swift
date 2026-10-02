@@ -103,8 +103,8 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
             environment: environment)
 
         // Only the app's command owner produces `stateUnavailable` on
-        // `$.commandId`, so this answer proves the CLI composed the invocation
-        // from the live catalog and the frame reached the server. Applying a
+        // `$.commandId`, so this answer proves the CLI sent its compiled raw envelope
+        // and the frame reached the server. Applying a
         // sidebar command needs a real window this headless harness does not
         // build; the decode path it exercises is what round 2 could not reach.
         #expect(execution.standardError.contains("\"reason\":\"stateUnavailable\""))

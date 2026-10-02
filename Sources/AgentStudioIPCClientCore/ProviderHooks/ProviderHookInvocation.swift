@@ -20,7 +20,8 @@ package struct ProviderHookDelivery: Sendable {
     }
 
     package static func liveIPC(
-        exampleIdentifierProvider: @escaping @Sendable () -> UUID
+        exampleIdentifierProvider: @escaping @Sendable () -> UUID,
+        environment: [String: String]
     ) -> Self {
         Self { params, configuration in
             let examples = IPCBuiltInMethodExampleContext(
@@ -39,7 +40,10 @@ package struct ProviderHookDelivery: Sendable {
                 normalizedParameters: descriptor.normalizeParameters(JSONEncoder().encode(params)),
                 presentation: .tooling
             )
-            let client = AgentStudioIPCClient(configuration: configuration, descriptors: descriptors)
+            let cleanup = CLIStoreCleanupHandler(environment: environment)
+            let client = AgentStudioIPCClient(
+                configuration: configuration, descriptors: descriptors,
+                onCallCompletion: { cleanup.handle(readThrough: $0) })
             switch try client.call(invocation) {
             case .success:
                 return

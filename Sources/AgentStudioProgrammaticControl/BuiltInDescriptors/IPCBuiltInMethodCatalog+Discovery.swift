@@ -37,13 +37,23 @@ extension IPCBuiltInMethodCatalog {
     /// composes and the provider hooks that call these methods run under short
     /// timeouts several times a turn.
     ///
-    /// `command.list` and `command.execute` are deliberately absent: their
-    /// arguments are defined by the running app, not by this binary.
+    /// All static method contracts are present. Limits remain server-owned:
+    /// the local wait descriptor accepts finite nonnegative durations without
+    /// copying the app's maximum. App command relationships are presentation
+    /// metadata, so local dispatch needs no interactive command identity.
+    /// Command envelopes are resolved separately by the CLI; listing commands
+    /// is an explicit discovery operation.
     package static func locallyResolvableDescriptors(
         examples: IPCBuiltInMethodExampleContext
     ) throws -> [IPCAnyMethodDescriptor] {
-        try bootstrapDescriptors(examples: examples)
-            + IPCSessionMethodDescriptors(examples: examples).erased
+        try IPCBuiltInMethodCatalog(
+            inputs: .init(
+                relationships: .init(
+                    paneFocus: .noInteractiveIdentity, paneClose: .noInteractiveIdentity,
+                    drawerToggle: .noInteractiveIdentity, drawerAddPane: .noInteractiveIdentity,
+                    bridgeDiffLoad: .noInteractiveIdentity, bridgeFileViewOpen: .noInteractiveIdentity),
+                examples: examples)
+        ).erasedDescriptors
     }
 
     /// Whether these arguments name one of `descriptors`, either by method name
@@ -70,19 +80,7 @@ extension IPCBuiltInMethodCatalog {
             Set(catalog.methods.map(\.name)).count == catalog.methods.count
         else { throw incompatibleCatalog() }
         let methods = Dictionary(uniqueKeysWithValues: catalog.methods.map { ($0.name, $0) })
-        let maximumWait: Double
-        if let wait = methods["terminal.wait"] {
-            guard case .object(let fields) = wait.parameterSchema,
-                case .number(_, let maximum) = fields.first(where: { $0.name == "timeoutSeconds" })?.schema,
-                let maximum
-            else { throw incompatibleCatalog() }
-            maximumWait = maximum
-        } else {
-            // This descriptor is filtered out below; no absent method supplies invocation policy.
-            maximumWait = 0
-        }
         let inputs = IPCBuiltInMethodCatalogInputs(
-            terminalWaitMaximumSeconds: maximumWait,
             relationships: .init(
                 paneFocus: methods["pane.focus"]?.commandRelationship ?? .noInteractiveIdentity,
                 paneClose: methods["pane.close"]?.commandRelationship ?? .noInteractiveIdentity,
