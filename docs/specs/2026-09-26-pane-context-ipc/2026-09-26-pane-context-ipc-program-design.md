@@ -1,6 +1,10 @@
 # Enable pane agents: how it is built
 
-Date: 2026-10-02. **Revision 23** folds in the decisions settled during delivery, 2026-10-01/02. Each was recorded first on board threads 01a0cdcb (IPC) and 01a0cdc9 (coordination), and each is anchored in code on `pane-context-ipc` or `fast-cli-store`:
+Date: 2026-10-02. **Revision 24** records two decisions from 2026-10-02:
+- the fast CLI's light index is realized as one typed-entry inventory, shared by the app's full catalog and the CLI's on-demand resolver (choice 4; built on `fast-cli-store`);
+- the pull-request chip registers no Forge demand until B2 links exist (agreed with Panes).
+
+**Revision 23** folds in the decisions settled during delivery, 2026-10-01/02. Each was recorded first on board threads 01a0cdcb (IPC) and 01a0cdc9 (coordination), and each is anchored in code on `pane-context-ipc` or `fast-cli-store`:
 - the display contract change Panes asked for (`own` / `includingDrawers` `PaneMessageCounts` and the `AgentMessageAttentionType` classifier; board 01a0f7b4);
 - the newest-blocking-ask tie-break;
 - the bounded `pane.context.get` reply (exact envelope overhead, a binary search on the detail budget) and source-list continuation;
@@ -113,6 +117,24 @@ Nothing computes on the main thread.
    parameters, resolves the target and authorizes before any handler runs
    (`AppIPCTypedMethodRegistration.swift:148-205`), so skipping the client
    check removes nothing the app relies on.
+   - **One method inventory feeds both sides.** Each built-in method is one
+     typed entry (`IPCBuiltInMethodEntry`, in ProgrammaticControl). An entry
+     holds the method's name, summary, model-call metadata, a deferred
+     parameter-schema factory and a factory for its one descriptor. Making
+     an entry builds nothing. `IPCBuiltInMethodIndex` lists the entries once.
+     - **The app** builds its full catalog by walking that same list, so its
+       catalog content and its typed group accessors are unchanged.
+     - **The CLI** resolves through `IPCCompiledInvocationResolver`
+       (ClientCore). It looks up the exact method name, or the longest
+       model-call prefix, and builds only that method plus `auth.login`. An
+       unknown name is refused before anything is built. A hook builds
+       `auth.login` and `session.event` and nothing else.
+     - **Help:** the overview reads names and summaries straight from the
+       entries. `METHOD --help` builds only that method's parameter schema.
+     - **Hard cutover:** the old eager CLI admission path
+       (`locallyResolvableDescriptors`) is gone, with no fallback to it.
+     - **At PR B's merge,** its eight `pane.*` recipes become entries, and the
+       inventory's exact-name check grows from 47 to 55.
    - **`command.execute` goes straight to the app too.** Today it costs three
      round trips (`system.capabilities`, `command.list`, then the call;
      `AgentStudioIPCClientCommandLineRunner.swift:84-118,194-227`). Now the CLI
@@ -921,7 +943,11 @@ Rules the implementations keep:
   - `.unknown` and `.noPullRequest` members are neutral: they never count as good or bad.
   - The two axes are read separately. A pull request whose `checks == .unknown` gives no check evidence (it's not failed, running or passed), but its review still counts: `review == .changesRequested` makes it need attention. With unknown checks it can't make the state `allGood`, whatever its review.
 - **Where it runs:** inside `PaneContextService`'s off-main detail derivation, like the rest of `PaneContextDetail`. A Forge fact change for any member re-derives the summary. The pane's revision bumps only when the derived `PullRequestSummaryDetail` changed, which includes any member row, not only the state (Spec R4 and R32: publish on change). A fact the summary doesn't carry (mergeability, draft) re-derives an equal value and doesn't bump. This is the same rule as "Any detail change bumps the revision" above.
-- **Who keeps the facts fresh:** Forge's existing demand owner (`PullRequestDemandProjection`). PR C's visible chip registers a demand source there; PR B adds no poller. Two or more members are required; a single-worktree pane gets `.notApplicable` and keeps today's PR control (`PanePullRequestToolbarActionFactory`).
+- **Who keeps the facts fresh:** Forge's existing demand owner (`PullRequestDemandProjection`); PR B adds no poller.
+  - **Until B2, the chip registers no demand.** Without B2 links a pane has no member worktrees, so there is nothing to ask Forge for. PR C's chip registers nothing yet (agreed with Panes, 2026-10-02).
+  - **B2 adds the demand** as part of its links work: the union of every linked pane's member worktrees, registered with `PullRequestDemandProjection`.
+  - **Constraint for B2:** the existing demand input is built on the main actor (`visibleActiveTabWorktreeIds` and its helpers in `WorkspaceSurfaceCoordinator+RepositoryFactDemand.swift`). B2 must not grow that main-actor set-building with the member union. The main actor captures keyed facts; the union is computed off-main.
+  - Two or more members are required. A single-worktree pane gets `.notApplicable` and keeps today's PR control (`PanePullRequestToolbarActionFactory`).
 - **Confirmed by the owner, 2026-09-30:** changes requested counts as attention; review required doesn't; N counts worktrees, not checks; attention beats running.
 
 ## Bounds and retention
