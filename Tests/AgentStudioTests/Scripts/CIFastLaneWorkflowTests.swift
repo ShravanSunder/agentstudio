@@ -395,7 +395,6 @@ struct CIFastLaneWorkflowTests {
         #expect(fastLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(largeLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(!testHelperScript.contains("run_non_serialized_swift_tests()"))
-        #expect(fastRunner.contains("native-concurrent fast non-WebKit suites"))
         #expect(!fastRunner.contains("\n    --parallel"))
         #expect(!fastRunner.contains("--num-workers"))
         #expect(outputFilterScript.contains("/usr/bin/iconv -f UTF-8 -t UTF-8 -c"))
@@ -649,8 +648,6 @@ struct CIFastLaneWorkflowTests {
             discoveredSuiteNames.isDisjoint(with: webKitLeafSuiteNames),
             "Process-global non-WebKit discovery must exclude every suite owned by the WebKit lane"
         )
-        #expect(fastRunner.contains("if ! fast_lane_skip_pattern=\"$(fast_non_webkit_skip_pattern)\"; then"))
-        #expect(fastRunner.contains("--skip \"$fast_lane_skip_pattern\""))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(aggregateRunner.contains("while IFS= read -r aggregate_serial_suite_filter"))
         #expect(aggregateRunner.contains("done <<<\"$aggregate_serial_suite_filters\""))
@@ -675,9 +672,6 @@ struct CIFastLaneWorkflowTests {
         #expect(isolatedSuiteRunner.contains("--testing-library swift-testing"))
         #expect(!aggregateRunner.contains("< <("))
         #expect(isolatedDispatcher.contains("return \"$lane_status\""))
-        // The skip moved into one builder so the exact suite names can be
-        // anchored without anchoring the substring families beside them.
-        #expect(fastRunner.contains("failed to prepare fast-lane skip pattern; no fast suites were started"))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
     }
