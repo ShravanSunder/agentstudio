@@ -36,6 +36,14 @@ final class ZmxTestHarness: @unchecked Sendable {
         /// unverifiable, so there is nothing to retry: a dead leader stays
         /// dead.
         case terminalLeaderConfirmedGone
+        /// F7 residual (advisor review round 2, Lead 2026-10-02):
+        /// `waitForSessionSocket`'s own `open(2)` on `zmxDir` failing leaves
+        /// no vnode to register a real watch against at all -- there is no
+        /// event source to wait on, so the honest behavior is to fail
+        /// immediately with the real cause, not poll a deadline hoping the
+        /// directory becomes openable. Carries the exact `errno` and path
+        /// so a real failure here is diagnosable, not a silent timeout.
+        case sessionDirectoryUnwatchable(path: String, errno: Int32)
 
         var errorDescription: String? {
             switch self {
@@ -45,6 +53,8 @@ final class ZmxTestHarness: @unchecked Sendable {
                 return "terminal leader pid \(terminalPID) exited before completing setsid"
             case .terminalLeaderConfirmedGone:
                 return "terminal leader was positively confirmed dead while waiting for settlement"
+            case .sessionDirectoryUnwatchable(let path, let errno):
+                return "open(2) on zmx session directory \(path) failed with errno \(errno); no vnode source to watch"
             }
         }
     }
@@ -336,17 +346,19 @@ final class ZmxTestHarness: @unchecked Sendable {
         URL(fileURLWithPath: zmxDir).appendingPathComponent(sessionId).path
     }
 
-    /// F7 (review round 1): `timeout` now only reaches `fallbackWaitForSessionSocket`,
-    /// the rare `open(2)`-failure path with no vnode source to register at
-    /// all. The common path, `awaitSessionSocketEvent`, no longer races a
-    /// timer against the real event -- see its own doc comment. Kept as a
-    /// parameter with its existing default so every current call site stays
-    /// source-compatible.
+    /// F7 residual (advisor review round 2, Lead 2026-10-02): `open(2)`
+    /// failing on `zmxDir` used to fall back to a deadline poll -- the
+    /// owner's rule bans deadline polling in tests outright, and having no
+    /// event source available is not an exemption. There is nothing to
+    /// register a real watch against in that case, so the honest test
+    /// behavior is to fail immediately with the real cause
+    /// (`SessionSettlementError.sessionDirectoryUnwatchable`), not poll
+    /// hoping the directory becomes openable. No deadline/timeout
+    /// parameter remains on this function at all.
     func waitForSessionSocket(
         sessionId: String,
-        exists expectedExists: Bool,
-        timeout: Duration = .seconds(10)
-    ) async -> Bool {
+        exists expectedExists: Bool
+    ) async throws -> Bool {
         let sessionSocketPath = sessionSocketPath(for: sessionId)
         if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
             return true
@@ -354,11 +366,7 @@ final class ZmxTestHarness: @unchecked Sendable {
 
         let directoryFileDescriptor = open(zmxDir, O_EVTONLY)
         guard directoryFileDescriptor >= 0 else {
-            return await fallbackWaitForSessionSocket(
-                sessionId: sessionId,
-                exists: expectedExists,
-                timeout: timeout
-            )
+            throw SessionSettlementError.sessionDirectoryUnwatchable(path: zmxDir, errno: errno)
         }
         // R2-4 item 2 (review round 2, Lead 2026-10-01): ownership of this
         // descriptor passes to `awaitSessionSocketEvent`, which now closes
@@ -537,7 +545,7 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// setsid race window.
     @discardableResult
     private func waitUntilSessionSettled(sessionId: String) async throws -> ZmxSessionIdentity {
-        guard await waitForSessionSocket(sessionId: sessionId, exists: true) else {
+        guard try await waitForSessionSocket(sessionId: sessionId, exists: true) else {
             throw SessionSettlementError.socketNeverAppeared(sessionId: sessionId)
         }
         let socketPath = sessionSocketPath(for: sessionId)
@@ -778,22 +786,6 @@ final class ZmxTestHarness: @unchecked Sendable {
         // through the cancel handler either way.
         eventSource.cancel()
         return result
-    }
-
-    private func fallbackWaitForSessionSocket(
-        sessionId: String,
-        exists expectedExists: Bool,
-        timeout: Duration
-    ) async -> Bool {
-        let deadline = clock.now + timeout
-        let sessionSocketPath = sessionSocketPath(for: sessionId)
-        while clock.now < deadline {
-            if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
-                return true
-            }
-            await Task.yield()
-        }
-        return FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists
     }
 
     /// Walk up from the test binary to find vendor/zmx/zig-out/bin/zmx.

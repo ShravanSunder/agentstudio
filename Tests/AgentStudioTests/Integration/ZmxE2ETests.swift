@@ -365,7 +365,7 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"]
                 )
 
-                let appeared = await harness.waitForSessionSocket(
+                let appeared = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
                     exists: true
                 )
@@ -394,10 +394,9 @@ extension E2ESerializedTests {
                 // Act 2 — kill the session
                 try await backend.destroyPaneSession(handle)
 
-                let disappeared = await harness.waitForSessionSocket(
+                let disappeared = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
-                    exists: false,
-                    timeout: .seconds(5)
+                    exists: false
                 )
                 #expect(disappeared, "Session should disappear from zmx list after kill")
 
@@ -431,11 +430,11 @@ extension E2ESerializedTests {
                 )
 
                 // Wait for both daemons
-                let appeared1 = await harness.waitForSessionSocket(
+                let appeared1 = try await harness.waitForSessionSocket(
                     sessionId: handle1.id.rawValue,
                     exists: true
                 )
-                let appeared2 = await harness.waitForSessionSocket(
+                let appeared2 = try await harness.waitForSessionSocket(
                     sessionId: handle2.id.rawValue,
                     exists: true
                 )
@@ -466,7 +465,7 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"]
                 )
 
-                let appeared = await harness.waitForSessionSocket(
+                let appeared = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
                     exists: true
                 )
@@ -476,7 +475,7 @@ extension E2ESerializedTests {
                 try await backend.destroySessionByID(handle.id)
 
                 // Assert
-                let gone = await harness.waitForSessionSocket(
+                let gone = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
                     exists: false,
                     timeout: .seconds(5)
@@ -500,7 +499,7 @@ extension E2ESerializedTests {
                     commandArgs: ["/bin/sleep", "300"]
                 )
 
-                let appeared = await harness.waitForSessionSocket(
+                let appeared = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
                     exists: true
                 )
@@ -519,7 +518,7 @@ extension E2ESerializedTests {
                 )
 
                 try await recreatedBackend.destroySessionByID(handle.id)
-                let gone = await harness.waitForSessionSocket(
+                let gone = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
                     exists: false,
                     timeout: .seconds(5)
