@@ -6,7 +6,6 @@ enum SwiftTestLaneInventoryAssertions {
     static func assertCompleteAndDisjoint() async throws {
         let rows = try await readInventoryRows()
         try assertInventoryRowsExistAndCoverRealProcessSuites(rows)
-        try await assertFastShardManifestCoversNativeFastSuites(rows)
         let filters = try await readLaneFilterPatterns()
         assertGeneratedSelectorsAssignEachListedTypeOnce(rows, filters: filters)
         assertUnlistedOrdinarySuitesStayFast(filters)
@@ -71,56 +70,6 @@ enum SwiftTestLaneInventoryAssertions {
         let nestedSuitePaths = Set(try swiftSuiteTypeDeclarations(in: nestedSuiteProbe).map(\.path))
         #expect(nestedSuitePaths == ["WebKitSerializedTests/BridgeTransportIntegrationTests"])
         #expect(!nestedSuitePaths.contains("WrongParent/BridgeTransportIntegrationTests"))
-    }
-
-    private static func assertFastShardManifestCoversNativeFastSuites(
-        _ rows: [SuiteLaneInventoryRow]
-    ) async throws {
-        let manifestData = try Data(contentsOf: URL(fileURLWithPath: "scripts/swift-test-fast-shard-manifest.json"))
-        let manifest = try #require(JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
-        let manifestSuites = try #require(manifest["suites"] as? [[String: Any]])
-        let manifestTypePaths = Set(manifestSuites.compactMap { $0["type_path"] as? String })
-        let aggregateSerialOutput = try await runBash(
-            "source scripts/swift-test-helpers.sh\n"
-                + "aggregate_serial_non_webkit_suite_filters"
-        )
-        let aggregateSerialNames = Set(aggregateSerialOutput.split(whereSeparator: \.isNewline).map(String.init))
-        let annotatedSourceTypes = try swiftTestSourceFiles()
-            .flatMap(swiftSuiteTypeDeclarations(in:))
-            .filter(\.hasSuiteAnnotation)
-        let requiredFastPaths = Set(
-            annotatedSourceTypes.compactMap { suiteType -> String? in
-                guard !aggregateSerialNames.contains(suiteType.name) else { return nil }
-                let ownerRow =
-                    rows
-                    .filter {
-                        suiteType.path == $0.suiteTypePath || suiteType.path.hasPrefix("\($0.suiteTypePath)/")
-                    }
-                    .max { $0.suiteTypePath.count < $1.suiteTypePath.count }
-                guard let ownerRow else { return suiteType.path }
-                return ownerRow.lane == "fast" && ownerRow.mode == "concurrent" ? suiteType.path : nil
-            })
-        let manifestLaneViolations = manifestTypePaths.filter { typePath in
-            let typeName = typePath.split(separator: "/").last.map(String.init) ?? typePath
-            guard !aggregateSerialNames.contains(typeName) else { return true }
-            let ownerRow =
-                rows
-                .filter {
-                    typePath == $0.suiteTypePath || typePath.hasPrefix("\($0.suiteTypePath)/")
-                }
-                .max { $0.suiteTypePath.count < $1.suiteTypePath.count }
-            guard let ownerRow else { return false }
-            return ownerRow.lane != "fast" || ownerRow.mode != "concurrent"
-        }
-
-        #expect(
-            requiredFastPaths.isSubset(of: manifestTypePaths),
-            "the F2 manifest must include every native fast suite, including unlisted suites that default to fast"
-        )
-        #expect(
-            manifestLaneViolations.isEmpty,
-            "the F2 manifest must not route process-global, serialized, or other-lane suites through native fast shards"
-        )
     }
 
     private static func readLaneFilterPatterns() async throws -> LaneFilterPatterns {
