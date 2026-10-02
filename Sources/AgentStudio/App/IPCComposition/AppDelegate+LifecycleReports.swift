@@ -4,13 +4,6 @@ import AgentStudioSessions
 import Foundation
 
 extension AppDelegate {
-    /// Live authentication and historical intake use one canonical membership truth.
-    func makeCanonicalPaneMembership() -> @MainActor @Sendable (UUID, UUID) -> Bool {
-        { [store] paneID, workspaceID in
-            store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
-        }
-    }
-
     var cliStoreChannel: CLIStoreChannel {
         switch appIPCServerChannel {
         case .stable: .stable
@@ -19,7 +12,10 @@ extension AppDelegate {
         }
     }
 
-    func makeCLILifecycleReportIntake(ingestion: SessionsIngestion, datastore: WorkspaceSQLiteDatastoreActor)
+    func makeCLILifecycleReportIntake(
+        ingestion: SessionsIngestion, datastore: WorkspaceSQLiteDatastoreActor, workspaceID: UUID,
+        canonicalPaneMembership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool
+    )
         -> CLILifecycleReportIntake
     {
         let admission = AgentStudioIPCSessionsAdapter(
@@ -31,7 +27,7 @@ extension AppDelegate {
         let intake = CLILifecycleReportIntake(
             storeURL: appIPCPaths.cliStoreURL, expectedChannel: cliStoreChannel, admission: admission,
             sqliteAccess: WorkspaceSessionsSQLiteAccess(datastore: datastore),
-            workspaceID: store.identityAtom.workspaceId, paneExists: makeCanonicalPaneMembership(),
+            workspaceID: workspaceID, paneExists: canonicalPaneMembership,
             finalRevokedPaneIDs: { principalRegistry.finalRevokedPaneIDsSnapshot() },
             awaitsLaunchInitialization: true,
             refusalProbe: { reason in appLogger.info("Lifecycle report refused: \(reason.rawValue, privacy: .public)") }

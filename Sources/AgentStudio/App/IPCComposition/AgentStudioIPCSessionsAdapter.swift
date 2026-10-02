@@ -42,7 +42,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     private let continuousNow: @Sendable () -> ContinuousClock.Instant
     private let activityClock: PaneActivityClock?
     private let foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)?
-    private let lifecycleReportSink: (@Sendable (UUID, IPCSessionEventParams) async throws -> IPCSessionEventResult)?
+    private let lifecycleReportSink:
+        (@Sendable (UUID, IPCSessionEventParams, IPCSessionEventProvenance) async throws -> IPCSessionEventResult)?
     private let resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)?
 
     /// The live IPC server admits messages as `.live`. The offline spool drainer
@@ -57,7 +58,9 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         activityClock: PaneActivityClock? = nil,
         foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil,
         resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)? = nil,
-        lifecycleReportSink: (@Sendable (UUID, IPCSessionEventParams) async throws -> IPCSessionEventResult)? = nil
+        lifecycleReportSink: (
+            @Sendable (UUID, IPCSessionEventParams, IPCSessionEventProvenance) async throws -> IPCSessionEventResult
+        )? = nil
     ) {
         self.lifecycleReportSink = lifecycleReportSink
         self.foregroundLookSink = foregroundLookSink
@@ -184,7 +187,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         provenance: IPCSessionEventProvenance
     ) async throws -> IPCSessionEventResult {
         if let lifecycleReportSink, params.event.name == .sessionStart || params.event.name == .sessionEnd {
-            return try await lifecycleReportSink(paneId, params)
+            return try await lifecycleReportSink(paneId, params, provenance)
         }
         return try await admitProviderEvent(paneId: paneId, params: params, provenance: provenance)
     }

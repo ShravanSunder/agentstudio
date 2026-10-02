@@ -1,3 +1,4 @@
+import AgentStudioAppIPC
 import AgentStudioCLIStore
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
@@ -54,8 +55,12 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
         try await serializeOperation { try await self.drain(through: boundary) }
     }
 
-    func recordLive(paneId: UUID, params: IPCSessionEventParams) async throws -> IPCSessionEventResult {
-        try await serializeOperation { try await self.admitLive(paneId: paneId, params: params) }
+    func recordLive(paneId: UUID, params: IPCSessionEventParams, provenance: IPCSessionEventProvenance = .matchingPane)
+        async throws -> IPCSessionEventResult
+    {
+        try await serializeOperation {
+            try await self.admitLive(paneId: paneId, params: params, provenance: provenance)
+        }
     }
 
     /// App reserves the whole listener/S0/sweep/intake operation before exposing live ingress.
@@ -121,7 +126,9 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
         }
     }
 
-    private func admitLive(paneId: UUID, params: IPCSessionEventParams) async throws -> IPCSessionEventResult {
+    private func admitLive(paneId: UUID, params: IPCSessionEventParams, provenance: IPCSessionEventProvenance)
+        async throws -> IPCSessionEventResult
+    {
         guard let position = params.lifecycleReport else {
             // Reading the fence cannot advance the prefix or admit older rows first.
             let fence = try? await readStore(after: 0, through: 0)?.highWater
@@ -134,7 +141,7 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
                 paneID: paneId, ordering: .unordered(fence: fence), finalRevokedPaneIDs: finalRevokedPaneIDs)
             do {
                 return try await admission.admitProviderEvent(
-                    paneId: paneId, params: params, provenance: .matchingPane, commitParticipant: participant)
+                    paneId: paneId, params: params, provenance: provenance, commitParticipant: participant)
             } catch CLILifecycleCommitRefusal.retiredPane {
                 refusalProbe(.retiredPane)
                 return refused(paneId: paneId, params: params)
@@ -157,7 +164,7 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
         }
         return try await disposition(
             paneID: paneId, params: params, storeID: position.storeId,
-            sequence: position.sequence, recordedAt: nil)
+            sequence: position.sequence, recordedAt: nil, provenance: provenance)
     }
 
     private func disposition(_ report: CLILifecycleReport, storeID: UUID) async throws -> IPCSessionEventResult {
@@ -188,7 +195,7 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
 
     private func disposition(
         paneID: UUID, params: IPCSessionEventParams, storeID: UUID,
-        sequence: Int64, recordedAt: Date?
+        sequence: Int64, recordedAt: Date?, provenance: IPCSessionEventProvenance = .matchingPane
     ) async throws -> IPCSessionEventResult {
         guard await paneExists(paneID, workspaceID), !finalRevokedPaneIDs().contains(paneID) else {
             try await refuse(.retiredPane, storeID: storeID, sequence: sequence)
@@ -224,7 +231,7 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
         let result: IPCSessionEventResult
         do {
             result = try await admission.admitProviderEvent(
-                paneId: paneID, params: params, provenance: .matchingPane,
+                paneId: paneID, params: params, provenance: provenance,
                 historicalStart: historical && params.event.name == .sessionStart,
                 reportedAt: recordedAt, commitParticipant: participant)
         } catch CLILifecycleCommitRefusal.retiredPane {

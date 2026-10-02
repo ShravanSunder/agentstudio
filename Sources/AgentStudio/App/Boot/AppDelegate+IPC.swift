@@ -75,6 +75,13 @@ enum AppIPCDeferredInitialization {
 }
 
 extension AppDelegate {
+    /// Live authentication and historical intake use one canonical membership truth.
+    func makeCanonicalPaneMembership() -> @MainActor @Sendable (UUID, UUID) -> Bool {
+        { [store] paneID, workspaceID in
+            store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
+        }
+    }
+
     func installAppIPCIdentityAuthority(datastore: WorkspaceSQLiteDatastoreActor) {
         let runtimeID = UUIDv7.generate()
         let paths = AgentStudioIPCPathResolver().paths(
@@ -385,7 +392,9 @@ extension AppDelegate {
             shellCommandHandler: self
         )
         let commandCatalogProjectionInputs = commandPort.commandCatalogProjectionInputs()
-        let intake = makeCLILifecycleReportIntake(ingestion: sessionsIngestion, datastore: datastore)
+        let intake = makeCLILifecycleReportIntake(
+            ingestion: sessionsIngestion, datastore: datastore, workspaceID: store.identityAtom.workspaceId,
+            canonicalPaneMembership: makeCanonicalPaneMembership())
         let ports = AgentStudioAppIPCPorts(
             queryPort: AgentStudioIPCQueryAdapter(
                 runtimeId: runtimeId,
@@ -427,7 +436,9 @@ extension AppDelegate {
                 activityClock: paneActivityClock,
                 foregroundLookSink: makeRestoreForegroundLookSink(),
                 resumedSessionStartSink: terminalActivityRouter?.resumedSessionStartSink,
-                lifecycleReportSink: { paneID, params in try await intake.recordLive(paneId: paneID, params: params) }
+                lifecycleReportSink: { paneID, params, provenance in
+                    try await intake.recordLive(paneId: paneID, params: params, provenance: provenance)
+                }
             ),
             permissionApprovalPort: AgentStudioIPCHumanApprovalPort(),
             ownPaneScopePort: WorkspaceOwnPaneScopePort(

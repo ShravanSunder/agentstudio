@@ -1,3 +1,4 @@
+import AgentStudioAppIPC
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
@@ -12,6 +13,69 @@ import Testing
 
 @Suite("CLI lifecycle intake prefix and parity")
 struct CLILifecycleReportIntakeTests {
+    @Test("the routed live lifecycle report retains the matching-pane resume guard", arguments: [false, true])
+    func lifecycleRoutePreservesProvenance(matchingPane: Bool) async throws {
+        try await withLifecycleIntakeFixture { fixture in
+            let source = LocalFactSource<UUID, LifecycleResumeIngressFact>(
+                vocabulary: .init(
+                    describeScope: { $0.uuidString }, describeFact: { String(describing: $0) },
+                    isClosing: { _, fact in fact == .reply }))
+            let facts = try source.attach()
+            let scope = fixture.paneID
+            let admission = AgentStudioIPCSessionsAdapter(
+                ingestion: fixture.ingestion,
+                providerRegistry: .init(profiles: [.codexCommandLine]), now: { fixture.now },
+                resumedSessionStartSink: { paneID, provider, conversationID in
+                    source.sink(scope, .resumed(paneID: paneID, provider: provider, conversationID: conversationID))
+                })
+            let members = fixture.members
+            let intake = CLILifecycleReportIntake(
+                storeURL: fixture.storeURL, expectedChannel: .debug,
+                admission: admission, sqliteAccess: fixture.access, workspaceID: fixture.workspaceID,
+                paneExists: { paneID, _ in members.contains(paneID) })
+            fixture.intakes.record(intake)
+            let routed = AgentStudioIPCSessionsAdapter(
+                ingestion: fixture.ingestion,
+                providerRegistry: .init(profiles: [.codexCommandLine]),
+                lifecycleReportSink: { paneID, params, provenance in
+                    try await intake.recordLive(paneId: paneID, params: params, provenance: provenance)
+                })
+            do {
+                _ = try await intake.captureListenerReadyBoundary()
+                let row = try await fixture.seed(fixture.record())
+                let opening = await facts.mark(scope)
+                let result = try await routed.recordProviderEvent(
+                    paneId: fixture.paneID,
+                    params: fixture.params(row.record, sequence: row.sequence),
+                    provenance: matchingPane ? .matchingPane : .other)
+                source.sink(scope, .reply)
+                #expect(result.disposition == .admitted)
+                #expect(try await fixture.state().mark == row.sequence)
+                if matchingPane {
+                    let observed = try await facts.expectNext(
+                        in: scope,
+                        where: {
+                            if case .resumed = $0 { true } else { false }
+                        }, "matching-pane resumed start")
+                    #expect(
+                        observed
+                            == .resumed(paneID: scope, provider: "codex", conversationID: row.record.conversationID))
+                    try await facts.expectNext(in: scope, .reply)
+                } else {
+                    try await facts.expectNone(
+                        of: {
+                            if case .resumed = $0 { true } else { false }
+                        }, "resumed start from other principal", from: opening, closedBy: { $0 == .reply })
+                }
+                try await facts.finish()
+            } catch {
+                source.sink(scope, .reply)
+                try? await facts.finish()
+                throw error
+            }
+        }
+    }
+
     @Test(
         "drained end envelopes preserve absent and unrecognized reasons exactly",
         arguments: [nil, "private future reason"] as [String?])
@@ -226,4 +290,9 @@ func withLifecycleIntakeFixture(
         fixture.remove()
         throw error
     }
+}
+
+private enum LifecycleResumeIngressFact: Equatable, Sendable {
+    case resumed(paneID: UUID, provider: String, conversationID: String)
+    case reply
 }

@@ -117,7 +117,8 @@ extension AppIPCBuiltInMethodRegistrations {
                                 handle: canonicalHandle,
                                 provider: original.provider,
                                 event: original.event,
-                                correlationId: original.correlationId
+                                correlationId: original.correlationId,
+                                lifecycleReport: original.lifecycleReport
                             )
                         }
                     )
