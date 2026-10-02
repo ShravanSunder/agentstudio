@@ -1,6 +1,8 @@
 # Session restore after a reboot: how it is built
 
-Date: 2026-10-02, revision 23 (R1 as built): item 5's check runs at the pane's first render, and its outcome names exactly what it can see (`matchedAtFirstRender`, `recreated`, `uncheckable(reason)`).
+Date: 2026-10-02, revision 24 (R3 as built, amendment 13): a cold pane waits for resume readiness inside the activation scheduler, as a per-pane eligibility checked before a pane can be picked or claimed (items 4 and 10). R2's quit capture and R3's quit look share the one shutdown bound and run concurrently (item 7).
+
+**Revision 23** (R1 as built): item 5's check runs at the pane's first render, and its outcome names exactly what it can see (`matchedAtFirstRender`, `recreated`, `uncheckable(reason)`).
 
 **Revision 22** (R3 delivery, S3). Two boundaries are settled in code:
 - the foreground observation repository reaches `local.sqlite` only through transaction closures (`ForegroundObservationSQLiteAccess`);
@@ -168,7 +170,7 @@ R1 and R2 don't depend on R3.
 
    The result type is `ColdStartOutcome = .handedOff | .failed(ColdStartFailure) | .unobservable(ColdStartUnobservableReason)`, where `ColdStartUnobservableReason = .watchRegistrationFailed(errno: Int32) | .identityUnverifiable | .processArgsUnreadable(errno: Int32)`. It's the observer's total result.
    - **Nothing is left behind.** The token disappears with the final `exec`, so the person's shell carries no restore variable. The token never reaches logs, telemetry or OTLP.
-4. **Staggered starts (SR4).** Cold starts use the existing activation scheduler unchanged. `TerminalActivationScheduler` claims and activates **one prepared terminal at a time**, visible first (`AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions = 1`; its single worker is what keeps candidate selection race-free). Activating a cold pane mounts its surface, which starts its `zmx attach`, and the worker moves on once it's mounted. So starts are staggered by activation, but the login shells may still be initializing together. **There's no separate start-slot limit:** gating the single worker on a slot would stall warm panes behind a cold pane's handoff, and a claim-time "not yet" outcome would be a new scheduler seam. That seam is added only if the 20-cold-pane measurement (Proof, R1) shows a real CPU or latency problem. The startup observer (item 3) runs per cold pane, with no slot. Its watch task is owned by the coordinator, cancelled on retirement and at teardown, and announces its outcome as a typed fact.
+4. **Staggered starts (SR4).** Cold starts use the existing activation scheduler. Its admission order and worker count are unchanged; R3 adds only the per-pane resume eligibility described in item 10. `TerminalActivationScheduler` claims and activates **one prepared terminal at a time**, visible first (`AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions = 1`; its single worker is what keeps candidate selection race-free). Activating a cold pane mounts its surface, which starts its `zmx attach`, and the worker moves on once it's mounted. So starts are staggered by activation, but the login shells may still be initializing together. **There's no separate start-slot limit:** gating the single worker on a slot would stall warm panes behind a cold pane's handoff, and a claim-time "not yet" outcome would be a new scheduler seam. That seam is added only if the 20-cold-pane measurement (Proof, R1) shows a real CPU or latency problem. The startup observer (item 3) runs per cold pane, with no slot. Its watch task is owned by the coordinator, cancelled on retirement and at teardown, and announces its outcome as a typed fact.
 5. **Recreation after attach (SR2a).** For warm and unverified panes, one off-main `observe` is compared by **identity** with the warm baseline from item 1.
    - **When it runs: the pane's first render.** Attach completion itself can't be observed:
      - zmx has no attached-client query;
@@ -361,7 +363,7 @@ flowchart LR
      - **Accepted residual.** A foreground change that adds no rows, reports nothing and ends no watched process isn't seen until the pane's next trigger. The projector counts rows added, so a change drawn in place on the screen doesn't arm a look. Output triggers also exist only for panes the projector receives samples for. The transitions this design cares about do print: the shell prints "suspended" for Ctrl-Z or a stop signal, `&` prints the job, and an exit is pushed. Spec SR11c records this gap as accepted; the design doesn't claim the triggers cover every transition.
      - `lookSettleDelay` (5 s) and `lookMaxDelay` (60 s) live in `AppPolicies.Restore`.
      - There's no `commandFinished` trigger: shell integration isn't injected into zmx panes by default (advisor report, 2026-09-30).
-   - **The quit look** runs in the observer actor. It's bounded by `AppPolicies.Restore.quitLookDeadline`, inside the existing 2 s shutdown bound, and runs before Sessions finishes. If it doesn't commit in time, the previous look stands, quit proceeds, and the owned task is cancelled.
+   - **The quit look** runs in the observer actor. It's bounded by `AppPolicies.Restore.quitLookDeadline`, inside the existing 2 s shutdown bound, and runs before Sessions finishes. R2's quit capture (item 11) runs concurrently with it inside that same bound, never after it. If it doesn't commit in time, the previous look stands, quit proceeds, and the owned task is cancelled.
    - **Classification:** find the foreground job through `tpgid`, then every row whose `pgid == tpgid`. `argv[0]` is read only from those rows and never stored. A group classifies by the first known agent binary in it, otherwise `.other`. An empty or incomplete `ps` gives `.unknown`, never `.shell`. A stopped or background agent isn't in the foreground, so the look reads `.shell`.
    - **Write admission,** atomic in the repository transaction:
      - the pane isn't retired;
@@ -396,6 +398,14 @@ flowchart LR
     **Every cold pane** waits for it, because a pending historical start can change which id a pane's notice names. Warm and unverified panes never wait, and the first frame never waits. The wait is bounded by `AppPolicies.Restore.resumeReadinessDeadline`. Past it, the result is `.unavailable` and every waiting cold pane gets `.unknown(.reportsNotTakenIn)`.
 
     A report recorded after S0 is live. Each cold pane's verdict is decided **once**, at readiness, and never re-decided.
+
+    **Where a cold pane waits (amendment 13).** The wait lives in `TerminalActivationScheduler` as a per-pane **resume eligibility**. It's checked before a pane can be picked or claimed, so a waiting cold pane never holds the single attach slot:
+    - A pane the mount marks for restore classification starts as `awaitingClassification`.
+    - When its kind arrives (`enqueueRestoreKind`), a warm or unverified pane, or one with no kind, has its kind installed through the admission port and becomes eligible at once. A cold pane moves to `awaitingResumeReadiness`.
+    - At readiness, `releaseAwaitingResumeReadiness` installs each decided cold plan, and those panes become eligible.
+    - A pane retired while it waits ends as `pane_retired` (`retireAwaitingResumeReadiness`).
+
+    Only eligible queued panes can be picked. So warm panes keep activating one at a time, visible first, while cold panes wait, and the single native-start cap (`restoreMaximumConcurrentAdmissions = 1`) is unchanged. `activate()` settles only when no pane is queued or still waiting on eligibility. Between drains it waits on one `eligibilityWaiter` stream (newest-only buffer), registered on the actor before it suspends. Every eligibility change, every retirement and `cancelAndReplace` signal that stream, so a release can't be lost. `memberState(for:)` reports `.awaitingResumeReadiness` and `.retired`.
 
     **Accepted limitation (Spec SR13).** A same-boot hook that was still in flight from the session's earlier run records after S0, with its own new `report_id`. A late `SessionEnd` from it matches the current binding by provider and conversation id (`AgentStudioIPCSessionsAdapter`'s current-generation resolver), so it ends the **resumed** run's binding. The resumed agent keeps running, but that pane isn't auto-resumed at a later restart: a missed resume, never a wrong one. No per-run correlation mechanism is added.
 
