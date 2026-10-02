@@ -21,10 +21,20 @@ package enum AppCommandRawArgumentParser {
         var corrections: [IPCSchemaValidationError] = []
         for variant in admitted {
             do {
+                let schema = try variant.schema
+                if case .object(let schemaFields) = schema {
+                    let declaredFieldNames = Set(schemaFields.map(\.name))
+                    let unknownFieldNames = arguments.keys.filter { !declaredFieldNames.contains($0) }.sorted()
+                    if let unknownFieldName = unknownFieldNames.first {
+                        throw IPCSchemaValidationError(
+                            fieldPath: "$.\(unknownFieldName)", reason: .unknownField,
+                            expected: "only declared fields")
+                    }
+                }
                 var fields = arguments
                 fields["kind"] = variant.rawValue
                 let encoded = try JSONEncoder().encode(fields)
-                matches.append(try variant.schema.decode(IPCCommandArguments.self, from: encoded))
+                matches.append(try schema.decode(IPCCommandArguments.self, from: encoded))
             } catch let correction as IPCSchemaValidationError {
                 let path =
                     correction.fieldPath == "$"

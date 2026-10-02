@@ -373,10 +373,17 @@ struct AgentStudioIPCClientCoreTests {
                 "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "9",
             ], descriptors: matched)
         #expect(wait.descriptorInvocation.descriptor.metadata.name == "terminal.wait")
+        let aboveFormerMaximum = try parse(
+            [
+                "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "10",
+            ], descriptors: matched)
+        let aboveFormerMaximumParams = try JSONDecoder().decode(
+            IPCTerminalWaitParams.self, from: aboveFormerMaximum.descriptorInvocation.normalizedParameters.data)
+        #expect(aboveFormerMaximumParams.timeoutSeconds == 10)
         #expect(throws: IPCDescriptorInvocationError.self) {
             try parse(
                 [
-                    "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "10",
+                    "terminal.wait", "--handle", "self", "--condition", "commandFinished", "--timeout-seconds", "-1",
                 ], descriptors: matched)
         }
     }

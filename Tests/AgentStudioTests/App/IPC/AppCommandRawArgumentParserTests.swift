@@ -103,7 +103,7 @@ struct AppCommandRawArgumentParserTests {
         }
         var raw: [String: String] = [:]
         for field in fields where field.name != "kind" {
-            guard case .string = field.schema else {
+            guard hasRawStringRepresentation(field.schema) else {
                 Issue.record("Command argument requires a new key=value encoding: \(variant.rawValue).\(field.name)")
                 continue
             }
@@ -118,5 +118,20 @@ struct AppCommandRawArgumentParserTests {
             }
         }
         return raw
+    }
+
+    private func hasRawStringRepresentation(_ schema: IPCJSONSchema) -> Bool {
+        switch schema {
+        case .string:
+            return true
+        case .oneOf(let alternatives):
+            return alternatives.count == 2 && alternatives.contains(.null)
+                && alternatives.contains { alternative in
+                    if case .string = alternative { return true }
+                    return false
+                }
+        default:
+            return false
+        }
     }
 }
