@@ -11,37 +11,46 @@ package struct IPCCompiledInvocationResolver: Sendable {
     package func resolve(
         arguments: [String], authenticated: Bool, inputs: IPCBuiltInMethodCatalogInputs
     ) throws -> [IPCAnyMethodDescriptor] {
-        // S6b RED: retain the current eager traversal until the selective-resolution gate is observed.
-        let descriptors = try index.makeRepresentations(inputs: inputs).map(\.erasedDescriptor)
-        guard let name = arguments.first else { throw unknownMethod() }
-        let selected: IPCAnyMethodDescriptor
-        if let exact = descriptors.first(where: { $0.metadata.name == name }) {
-            selected = exact
-        } else {
-            let candidates = descriptors.flatMap { descriptor in
-                descriptor.metadata.modelCalls.compactMap { projection -> (IPCAnyMethodDescriptor, Int)? in
-                    let prefix = projection.variant.rawValue.split(separator: " ").map(String.init)
-                    return arguments.starts(with: prefix) ? (descriptor, prefix.count) : nil
-                }
-            }
-            guard let longest = candidates.map({ $0.1 }).max() else { throw unknownMethod() }
-            let matches = candidates.filter { $0.1 == longest }
-            guard matches.count == 1, let candidate = matches.first else {
-                throw IPCDescriptorInvocationError(
-                    reason: .ambiguousInvocation, fieldPath: "$", expected: "one descriptor model projection")
-            }
-            selected = candidate.0
+        if arguments.first == "command.execute" {
+            let authentication =
+                authenticated
+                ? try resolve(arguments: ["auth.login"], authenticated: false, inputs: inputs) : []
+            let execution = try IPCAnyMethodDescriptor(erasing: IPCCommandMethodComposition.compiledExecute())
+            return authentication + [execution]
         }
-        guard authenticated, selected.metadata.name != "auth.login",
-            let authentication = descriptors.first(where: { $0.metadata.name == "auth.login" })
-        else { return [selected] }
-        return [authentication, selected]
+        let selected = try selectedEntry(arguments: arguments)
+        var requiredEntries = [selected]
+        if authenticated, selected.name != "auth.login" {
+            guard let authentication = index.entry(named: "auth.login") else {
+                throw IPCMethodDescriptorRepresentationLookupError.missingMethod("auth.login")
+            }
+            requiredEntries.insert(authentication, at: 0)
+        }
+        return try requiredEntries.map { try $0.makeRepresentation(inputs: inputs).erasedDescriptor }
     }
 
-    package func localHelp(arguments: [String], inputs: IPCBuiltInMethodCatalogInputs) throws -> String? {
-        // S6b RED: help still pays descriptor construction, as the existing runner does.
-        let descriptors = try index.makeRepresentations(inputs: inputs).map(\.erasedDescriptor)
-        return try IPCDescriptorCLIHelp.localHelp(arguments: arguments, descriptors: descriptors)
+    package func localHelp(
+        arguments: [String], inputs _: IPCBuiltInMethodCatalogInputs? = nil
+    ) throws -> String? {
+        try IPCDescriptorCLIHelp.localHelp(arguments: arguments, index: index)
+    }
+
+    private func selectedEntry(arguments: [String]) throws -> IPCBuiltInMethodIndexEntry {
+        guard let name = arguments.first else { throw unknownMethod() }
+        if let exact = index.entry(named: name) { return exact }
+        let candidates = index.entries.flatMap { entry in
+            entry.modelCalls.compactMap { projection -> (IPCBuiltInMethodIndexEntry, Int)? in
+                let prefix = projection.variant.rawValue.split(separator: " ").map(String.init)
+                return arguments.starts(with: prefix) ? (entry, prefix.count) : nil
+            }
+        }
+        guard let longest = candidates.map({ $0.1 }).max() else { throw unknownMethod() }
+        let matches = candidates.filter { $0.1 == longest }
+        guard matches.count == 1, let candidate = matches.first else {
+            throw IPCDescriptorInvocationError(
+                reason: .ambiguousInvocation, fieldPath: "$", expected: "one descriptor model projection")
+        }
+        return candidate.0
     }
 
     private func unknownMethod() -> IPCDescriptorInvocationError {

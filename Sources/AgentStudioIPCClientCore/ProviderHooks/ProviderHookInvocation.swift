@@ -26,10 +26,9 @@ package struct ProviderHookDelivery: Sendable {
             let examples = IPCBuiltInMethodExampleContext(
                 illustrativeIdentifier: exampleIdentifierProvider()
             )
-            // A hook fires several times a turn under a short provider timeout,
-            // so it resolves session.event from its own compiled contract rather
-            // than fetching the whole catalog first.
-            let descriptors = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: examples)
+            let descriptors = try IPCCompiledInvocationResolver().resolve(
+                arguments: ["session.event"], authenticated: configuration.authToken != nil,
+                inputs: .init(examples: examples))
             guard let descriptor = descriptors.first(where: { $0.metadata.name == "session.event" })
             else {
                 throw ProviderHookFailure.methodUnavailable

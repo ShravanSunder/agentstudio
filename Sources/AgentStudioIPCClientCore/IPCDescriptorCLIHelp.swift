@@ -3,22 +3,22 @@ import AgentStudioProgrammaticControl
 /// Help projects compiled contracts before endpoint or credential resolution.
 /// Live command identities are rendered only from an explicit discovery.
 enum IPCDescriptorCLIHelp {
-    static func localHelp(arguments: [String], descriptors: [IPCAnyMethodDescriptor]) throws -> String? {
+    static func localHelp(arguments: [String], index: IPCBuiltInMethodIndex) throws -> String? {
         if arguments == ["--help"] || arguments == ["help"] {
-            return overview(descriptors: descriptors)
+            return overview(index: index)
         }
         if arguments.count == 2, arguments[0] == "help", arguments[1] != "--live" {
-            return try methodHelp(named: arguments[1], descriptors: descriptors)
+            return try methodHelp(named: arguments[1], index: index)
         }
         if arguments.count == 2, arguments[1] == "--help" {
-            return try methodHelp(named: arguments[0], descriptors: descriptors)
+            return try methodHelp(named: arguments[0], index: index)
         }
         return nil
     }
 
-    static func overview(descriptors: [IPCAnyMethodDescriptor]) -> String {
-        let methods = descriptors.sorted { $0.metadata.name < $1.metadata.name }.map {
-            "  \($0.metadata.name) — \($0.metadata.description)"
+    static func overview(index: IPCBuiltInMethodIndex) -> String {
+        let methods = index.entries.map {
+            "  \($0.name) — \($0.summary)"
         }
         return
             ([
@@ -40,16 +40,16 @@ enum IPCDescriptorCLIHelp {
             }).joined(separator: "\n")
     }
 
-    private static func methodHelp(named name: String, descriptors: [IPCAnyMethodDescriptor]) throws -> String {
-        guard let descriptor = descriptors.first(where: { $0.metadata.name == name }) else {
+    private static func methodHelp(named name: String, index: IPCBuiltInMethodIndex) throws -> String {
+        guard let entry = index.entry(named: name) else {
             throw IPCDescriptorInvocationError(
                 reason: .unknownMethod, fieldPath: "$.method", expected: "a compiled method name")
         }
         var lines = [
-            "\(descriptor.metadata.name) — \(descriptor.metadata.description)",
-            "Usage: agentstudio \(descriptor.metadata.name) [OPTIONS | --json '{...}' | --stdin]",
+            "\(entry.name) — \(entry.summary)",
+            "Usage: agentstudio \(entry.name) [OPTIONS | --json '{...}' | --stdin]",
         ]
-        if case .object(let fields) = descriptor.metadata.parameterSchema, !fields.isEmpty {
+        if case .object(let fields) = try entry.parameterSchema(), !fields.isEmpty {
             lines.append("Parameters:")
             for field in fields {
                 let presence = field.presence == .required ? "required" : "optional"
@@ -58,10 +58,10 @@ enum IPCDescriptorCLIHelp {
                 )
             }
         }
-        for modelCall in descriptor.metadata.modelCalls {
+        for modelCall in entry.modelCalls {
             lines.append("Model invocation: agentstudio \(modelCall.variant.rawValue)")
         }
-        if descriptor.metadata.correlationPolicy == .required {
+        if entry.correlationPolicy == .required {
             lines.append(
                 "correlationId is generated when omitted and preserved when supplied, including JSON and stdin.")
         }

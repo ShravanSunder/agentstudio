@@ -59,10 +59,8 @@ package struct AgentStudioIPCClientCommandLineRunner {
             if let code = providerCommandExit(readInput: readInput) {
                 return code
             }
-            let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: props.identifierGenerator())
-            let locallyResolvable = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: examples)
-            if let help = try IPCDescriptorCLIHelp.localHelp(arguments: props.arguments, descriptors: locallyResolvable)
-            {
+            let resolver = IPCCompiledInvocationResolver()
+            if let help = try resolver.localHelp(arguments: props.arguments) {
                 props.standardOutputSink(help)
                 return 0
             }
@@ -71,45 +69,32 @@ package struct AgentStudioIPCClientCommandLineRunner {
                 standardInputProvider: readInput
             )
             endpointCameFromDebugEscrow = global.endpointCameFromDebugEscrow
+            let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: props.identifierGenerator())
+            let inputs = IPCBuiltInMethodCatalogInputs(examples: examples)
             let offlineHandler = PaneNotificationOfflineHandler(environment: props.environment)
-            let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
-            let discoveryClient = makeClient(configuration: global.configuration, descriptors: bootstrap)
-            if global.methodArguments.first == "system.capabilities" {
-                try validateCapabilitiesParameters(global: global, readInput: readInput)
-                try write(JSONEncoder().encode(discoveryClient.discoverCatalog()))
-                return 0
-            }
-            if global.methodArguments == ["help", "--live"] {
-                try writeLiveHelp(global: global, bootstrap: bootstrap, discoveryClient: discoveryClient)
-                return 0
-            }
-            if global.methodArguments.first == "command.list" {
-                let schema = try IPCEmptyParams.ipcSchema()
-                let arguments = Array(global.methodArguments.dropFirst())
-                _ = try schema.normalize(
-                    IPCDescriptorInvocationParser.toolingParameterData(
-                        arguments: arguments, schema: schema,
-                        standardInput: arguments.first == "--stdin" ? readInput() : nil))
-                try write(JSONEncoder().encode(discoveryClient.discoverCommands()))
+            if try writeExplicitDiscovery(global: global, resolver: resolver, inputs: inputs, readInput: readInput) {
                 return 0
             }
             let invocation: IPCDescriptorInvocation
-            let descriptors: [IPCAnyMethodDescriptor]
+            let descriptors = try resolver.resolve(
+                arguments: global.methodArguments, authenticated: global.configuration.authToken != nil,
+                inputs: inputs)
             if global.methodArguments.first == "command.execute" {
-                let descriptor = try IPCAnyMethodDescriptor(
-                    erasing: IPCCommandMethodComposition.compiledExecute())
-                descriptors = bootstrap + [descriptor]
+                guard let descriptor = descriptors.first(where: { $0.metadata.name == "command.execute" }) else {
+                    throw IPCMethodDescriptorRepresentationLookupError.missingMethod("command.execute")
+                }
                 invocation = try IPCCommandCLIInvocationParser.parse(
                     global: global, descriptor: descriptor, readInput: readInput,
                     correlationIDGenerator: props.identifierGenerator)
             } else {
-                descriptors = locallyResolvable
                 invocation = try AgentStudioIPCClientArguments.parseMethod(
                     global, descriptors: descriptors, correlationIDGenerator: props.identifierGenerator,
                     standardInputProvider: readInput
                 ).descriptorInvocation
             }
-            if global.reloadCatalog { _ = try discoveryClient.discoverCatalog() }
+            if global.reloadCatalog {
+                _ = try makeClient(configuration: global.configuration, descriptors: descriptors).discoverCatalog()
+            }
             try deliver(
                 invocation: invocation,
                 client: makeClient(
@@ -120,6 +105,34 @@ package struct AgentStudioIPCClientCommandLineRunner {
         } catch {
             return exitCode(forFailure: error, endpointCameFromDebugEscrow: endpointCameFromDebugEscrow)
         }
+    }
+
+    private func writeExplicitDiscovery(
+        global: IPCClientGlobalArguments, resolver: IPCCompiledInvocationResolver,
+        inputs: IPCBuiltInMethodCatalogInputs, readInput: () -> Data
+    ) throws -> Bool {
+        guard
+            global.methodArguments.first == "system.capabilities"
+                || global.methodArguments == ["help", "--live"]
+                || global.methodArguments.first == "command.list"
+        else { return false }
+        let authentication = try resolver.resolve(arguments: ["auth.login"], authenticated: false, inputs: inputs)
+        let discoveryClient = makeClient(configuration: global.configuration, descriptors: authentication)
+        if global.methodArguments.first == "system.capabilities" {
+            try validateCapabilitiesParameters(global: global, readInput: readInput)
+            try write(JSONEncoder().encode(discoveryClient.discoverCatalog()))
+        } else if global.methodArguments == ["help", "--live"] {
+            try writeLiveHelp(global: global, authentication: authentication, discoveryClient: discoveryClient)
+        } else {
+            let schema = try IPCEmptyParams.ipcSchema()
+            let arguments = Array(global.methodArguments.dropFirst())
+            _ = try schema.normalize(
+                IPCDescriptorInvocationParser.toolingParameterData(
+                    arguments: arguments, schema: schema,
+                    standardInput: arguments.first == "--stdin" ? readInput() : nil))
+            try write(JSONEncoder().encode(discoveryClient.discoverCommands()))
+        }
+        return true
     }
 
     private func validateCapabilitiesParameters(
@@ -134,13 +147,14 @@ package struct AgentStudioIPCClientCommandLineRunner {
     }
 
     private func writeLiveHelp(
-        global: IPCClientGlobalArguments, bootstrap: [IPCAnyMethodDescriptor], discoveryClient: AgentStudioIPCClient
+        global: IPCClientGlobalArguments, authentication: [IPCAnyMethodDescriptor],
+        discoveryClient: AgentStudioIPCClient
     ) throws {
         let catalog = try discoveryClient.discoverCatalog()
         let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
         let client = makeClient(
             configuration: global.configuration,
-            descriptors: bootstrap + [discovery.commandListInvocation.descriptor])
+            descriptors: authentication + [discovery.commandListInvocation.descriptor])
         switch try client.call(discovery.commandListInvocation) {
         case .success(let response):
             let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)

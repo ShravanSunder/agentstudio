@@ -89,17 +89,15 @@ package enum ClaudeCodeHookInvocation {
             authToken: environment["AGENTSTUDIO_PANE_TOKEN"]
         )
         let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: params.correlationId)
-        let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
-        // A hook fires several times a turn under a short provider timeout, so
-        // it resolves session.event from its own compiled contract rather than
-        // fetching the whole catalog first.
-        let descriptors = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: examples)
+        let descriptors = try IPCCompiledInvocationResolver().resolve(
+            arguments: ["session.event"], authenticated: configuration.authToken != nil,
+            inputs: .init(examples: examples))
         guard let descriptor = descriptors.first(where: { $0.metadata.name == "session.event" }) else {
             throw ClaudeCodeHookInvocationError.sessionEventUnavailable
         }
         let cleanup = CLIStoreCleanupHandler(environment: environment)
         let client = AgentStudioIPCClient(
-            configuration: configuration, descriptors: bootstrap + [descriptor],
+            configuration: configuration, descriptors: descriptors,
             onCallCompletion: { cleanup.handle(readThrough: $0) })
         let result = try client.call(
             IPCDescriptorInvocation(
