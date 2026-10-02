@@ -75,10 +75,10 @@ final class ZmxTestHarness: @unchecked Sendable {
         let process: Process
         let processID: pid_t
         /// Non-`nil` only for a process this harness itself gave a `Pipe`
-        /// (`spawnZmxSession`/`spawnShellCommandWithoutWaitingForSettlement`/
-        /// `spawnShellCommandCapturingOutput`) -- `terminateSpawnedProcesses`
-        /// stops draining it, from the owning teardown point, once the kill
-        /// signal above it has already been sent.
+        /// (`spawnZmxSession`/`spawnShellCommandWithoutWaitingForSettlement`)
+        /// -- `terminateSpawnedProcesses` stops draining it, from the owning
+        /// teardown point, once the kill signal above it has already been
+        /// sent.
         let standardOutputPipe: Pipe?
     }
 
@@ -520,44 +520,6 @@ final class ZmxTestHarness: @unchecked Sendable {
             ))
 
         return (process, sessionCreatedStep)
-    }
-
-    /// F7 (review round 1): the general form of
-    /// `spawnShellCommandWithoutWaitingForSettlement`, for R1's option-A
-    /// zmx-e2e cases that must read the attach client's own real output
-    /// (the restore notice a fallback script prints) instead of polling
-    /// `zmx history`. Confirmed against zmx's own source at the pinned
-    /// commit: `history` reads no file -- it answers over the session's
-    /// control socket from the daemon's in-memory terminal state
-    /// (main.zig:1377-1437 `fetchHistory`, loop.zig:1129-1146
-    /// `handleHistory`) -- so there is no filesystem event to watch for it,
-    /// and repolling it is the only alternative to reading real output.
-    ///
-    /// A separate variant rather than a parameter on the shared helper, so
-    /// every inherited caller of `spawnShellCommandWithoutWaitingForSettlement`
-    /// keeps its stdout nulled exactly as before.
-    ///
-    /// The returned process must be awaited by callers through `cleanup()`.
-    func spawnShellCommandCapturingOutput(_ commandLine: String) throws -> (process: Process, standardOutput: Pipe) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", commandLine]
-        let standardOutputPipe = Pipe()
-        process.standardOutput = standardOutputPipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = Pipe()
-        process.environment = Self.hermeticChildEnvironment(zmxDir: zmxDir, scratchHomeDirectory: scratchHomeDirectory)
-        try process.run()
-
-        let processID = process.processIdentifier
-        spawnedProcesses.append(
-            SpawnedProcess(
-                process: process,
-                processID: processID,
-                standardOutputPipe: standardOutputPipe
-            ))
-
-        return (process, standardOutputPipe)
     }
 
     /// `beginDrainingStandardOutput`'s own scan state, bundled so one

@@ -113,42 +113,6 @@ extension E2ESerializedTests.ZmxE2ETests {
         }
     }
 
-    private func makeFIFOPath() throws -> String {
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cold-restore-fifo-\(UUIDv7.generate().uuidString)").path
-        guard mkfifo(path, 0o600) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        return path
-    }
-
-    /// Opens a FIFO's write end. This is the deterministic, event-driven
-    /// proof that the process blocked at the matching read end (`cat
-    /// <fifo>`) has genuinely reached that point: a FIFO open for writing
-    /// blocks until a reader has already opened it -- real POSIX rendezvous,
-    /// not a timing guess. Offloaded off the cooperative pool since it's a
-    /// real blocking syscall.
-    private func openFIFOForWriting(atPath path: String) async throws -> Int32 {
-        try await withoutBlockingCooperativePool {
-            let descriptor = open(path, O_WRONLY)
-            guard descriptor >= 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-            return descriptor
-        }
-    }
-
-    /// Closes the FIFO's write end without writing anything: the blocked
-    /// reader sees EOF on its next read and its `cat` exits, releasing the
-    /// hold.
-    private func closeFIFOWriteDescriptor(_ descriptor: Int32) async throws {
-        try await withoutBlockingCooperativePool {
-            guard close(descriptor) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-        }
-    }
-
     /// A thin wrapper standing in for `plan.zmxExecutable`: blocks reading
     /// `holdFIFOPath` (a `cat`, exactly like the production script's own
     /// `replayFile` hold), then `exec`s the real zmx binary with the exact

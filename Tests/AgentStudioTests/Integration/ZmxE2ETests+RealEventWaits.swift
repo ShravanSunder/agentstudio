@@ -48,8 +48,8 @@ extension E2ESerializedTests.ZmxE2ETests {
     ///
     /// R2-4 item 3 (review round 2, Lead 2026-10-01): the FD-lifetime
     /// defect A4 already fixed once in production and this file's own
-    /// `awaitAlreadyRunningProcessExit`/`awaitMarkerInProcessOutput` never
-    /// had -- a bare `defer { close(directoryFileDescriptor) }` races
+    /// `awaitAlreadyRunningProcessExit` never had -- a bare
+    /// `defer { close(directoryFileDescriptor) }` races
     /// `eventSource.cancel()`'s asynchronous request (source.h:512) rather
     /// than running from its cancel handler, the SDK's own documented safe
     /// point.
@@ -270,101 +270,4 @@ extension E2ESerializedTests.ZmxE2ETests {
             }
         }
     }
-
-    /// F7 (review round 1): read-arrival for the attach client's own real
-    /// output, replacing a deadline/50ms poll against `zmx history` (the
-    /// now-deleted `ZmxTestHarness.waitForSessionHistory` -- Lead
-    /// 2026-10-01: zero callers left once this replaced it) in R1's two
-    /// option-A cases that must observe a fallback script's restore
-    /// notice. `zmx history` reads no file --
-    /// confirmed against zmx's own source at the pinned commit: it answers
-    /// over the session's control socket from the daemon's in-memory
-    /// terminal state (main.zig:1377-1437, loop.zig:1129-1146) -- so there
-    /// is no filesystem event for the notice either, and the attach
-    /// client's own stdout (captured via `spawnShellCommandCapturingOutput`,
-    /// not the nulled default) is the real one this suite can watch
-    /// instead. Searches raw accumulated bytes, not decoded lines: terminal
-    /// escape sequences can surround the marker text. `FileHandle
-    /// .readabilityHandler` dispatches off the cooperative pool entirely --
-    /// never a blocking read inside a Swift Task. EOF before the marker
-    /// arrives is the correlated negative end: the process closed its
-    /// stdout, so whatever it was going to print has already arrived or
-    /// never will, and this throws instead of hanging past it. No deadline
-    /// beyond the suite's own runner-owned hang bound.
-    ///
-    /// Architecture lint follow-up (Lead 2026-10-01): register-then-check
-    /// against a `LocalFactSource`/`FactRecorder` pair instead of a
-    /// hand-built `CheckedContinuation`. The readability handler only sinks
-    /// an observation fact -- synchronous, never a Task -- and
-    /// `recorder.expectNext(in:where:_:)` returns that fact's value
-    /// directly: the accumulated bytes through the marker ARE the value
-    /// that satisfied this wait, so this function returns them and every
-    /// caller asserts on that returned snapshot instead of a later,
-    /// separately-timed read.
-    func awaitMarkerInProcessOutput(pipe: Pipe, marker: String) async throws -> Data {
-        let markerBytes = Data(marker.utf8)
-        let accumulated = Mutex<Data>(Data())
-        let scope = "process output contains marker"
-        let source = LocalFactSource(
-            vocabulary: FactVocabulary<String, ProcessOutputMarkerObservation>(
-                describeScope: { $0 },
-                describeFact: { observation in
-                    switch observation {
-                    case .markerFound(let data): return "marker found in \(data.count) bytes"
-                    case .reachedEOFWithoutMarker: return "reached EOF without the marker"
-                    }
-                },
-                isClosing: { _, _ in true }
-            )
-        )
-        let recorder = try source.attach()
-        let sink = source.sink
-
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            // FileHandle.readabilityHandler dispatches off the cooperative
-            // pool entirely, not inside a Swift Task; LocalFactSource.sink
-            // is synchronous and safe here.
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                pipe.fileHandleForReading.readabilityHandler = nil
-                sink(scope, .reachedEOFWithoutMarker)
-                return
-            }
-            let (foundMarker, capturedSoFar) = accumulated.withLock { stored -> (Bool, Data) in
-                stored.append(chunk)
-                return (stored.contains(markerBytes), stored)
-            }
-            if foundMarker {
-                pipe.fileHandleForReading.readabilityHandler = nil
-                sink(scope, .markerFound(capturedSoFar))
-            }
-        }
-
-        return try await withTaskCancellationHandler {
-            let observation = try await recorder.expectNext(
-                in: scope, where: { _ in true }, "process output marker observation")
-            switch observation {
-            case .markerFound(let data):
-                return data
-            case .reachedEOFWithoutMarker:
-                throw ProcessOutputMarkerWaitFailure.reachedEOFWithoutMarker
-            }
-        } onCancel: {
-            pipe.fileHandleForReading.readabilityHandler = nil
-        }
-    }
-}
-
-/// What `awaitMarkerInProcessOutput`'s readability handler observed: either
-/// the marker arrived (carrying the bytes accumulated through it) or the
-/// process's stdout reached EOF first.
-private enum ProcessOutputMarkerObservation: Sendable {
-    case markerFound(Data)
-    case reachedEOFWithoutMarker
-}
-
-/// Thrown by `awaitMarkerInProcessOutput` when a process's stdout reaches
-/// EOF before the expected marker ever appeared in it.
-enum ProcessOutputMarkerWaitFailure: Error {
-    case reachedEOFWithoutMarker
 }
