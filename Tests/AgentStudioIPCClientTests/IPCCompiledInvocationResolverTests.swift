@@ -1,0 +1,132 @@
+import AgentStudioPrimitives
+import AgentStudioProgrammaticControl
+import Foundation
+import Synchronization
+import Testing
+
+@testable import AgentStudioIPCClientCore
+
+@Suite("CLI selective compiled invocation resolution")
+struct IPCCompiledInvocationResolverTests {
+    @Test("index construction and metadata lookup never invoke descriptor or help-schema factories")
+    func indexMetadataDoesNotConstructDescriptors() throws {
+        let observation = ResolverFactoryObservation()
+        let index = recordingIndex(observation)
+        #expect(index.entries.count == 47)
+        #expect(index.entry(named: "session.event")?.name == "session.event")
+        #expect(observation.descriptorNames.isEmpty)
+        #expect(observation.helpSchemaNames.isEmpty)
+    }
+
+    @Test("session.event resolves through real factories for only authentication and the event")
+    func sessionEventBuildsOnlyAuthenticationAndEvent() throws {
+        let observation = ResolverFactoryObservation()
+        let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
+        let descriptors = try resolver.resolve(arguments: ["session.event"], authenticated: true, inputs: inputs)
+        #expect(observation.descriptorNames.sorted() == ["auth.login", "session.event"])
+        #expect(descriptors.map { $0.metadata.name }.sorted() == ["auth.login", "session.event"])
+        let event = try #require(descriptors.first { $0.metadata.name == "session.event" })
+        let sample = try #require(event.metadata.examples.first)
+        let encoded = try JSONEncoder().encode(sample)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let parameters = try #require(object["parameters"] as? [String: Any])
+        _ = try event.normalizeParameters(JSONSerialization.data(withJSONObject: parameters))
+    }
+
+    @Test("ordinary methods build only their method and auth.login without duplicate login")
+    func ordinaryMethodBuildsOnlyAuthenticationAndSelectedMethod() throws {
+        let observation = ResolverFactoryObservation()
+        let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
+        _ = try resolver.resolve(arguments: ["terminal.status"], authenticated: true, inputs: inputs)
+        #expect(observation.descriptorNames.sorted() == ["auth.login", "terminal.status"])
+        observation.clear()
+        _ = try resolver.resolve(arguments: ["auth.login"], authenticated: true, inputs: inputs)
+        #expect(observation.descriptorNames == ["auth.login"])
+    }
+
+    @Test("an unknown method is refused before any real descriptor is constructed")
+    func unknownMethodConstructsNothing() throws {
+        let observation = ResolverFactoryObservation()
+        let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
+        #expect(throws: IPCDescriptorInvocationError.self) {
+            try resolver.resolve(arguments: ["terminal.sned"], authenticated: true, inputs: inputs)
+        }
+        #expect(observation.descriptorNames.isEmpty)
+    }
+
+    @Test("longest model prefix selects only the real owning descriptor and authentication")
+    func modelAliasBuildsOnlyOwningMethodAndAuthentication() throws {
+        let observation = ResolverFactoryObservation()
+        let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
+        let fixture = inputs
+        let descriptors = try resolver.resolve(
+            arguments: ["needs-you", "--clear"], authenticated: true, inputs: fixture)
+        #expect(observation.descriptorNames.sorted() == ["auth.login", "session.report"])
+        let invocation = try IPCDescriptorInvocationParser.parse(
+            ["needs-you", "--clear"], descriptors: descriptors, correlationIDGenerator: { UUIDv7.generate() })
+        guard case .model(let projection) = invocation.presentation else {
+            Issue.record("The longest model prefix must retain model presentation")
+            return
+        }
+        #expect(projection.variant == .needsYouClear)
+    }
+
+    @Test("overview help retains names and summaries without descriptor or schema construction")
+    func overviewHelpConstructsNoDescriptors() throws {
+        let observation = ResolverFactoryObservation()
+        let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
+        let help = try #require(resolver.localHelp(arguments: ["--help"], inputs: inputs))
+        #expect(help.contains("session.event"))
+        #expect(help.contains("Project one provider lifecycle event into Sessions for the target pane."))
+        #expect(observation.descriptorNames.isEmpty)
+        #expect(observation.helpSchemaNames.isEmpty)
+    }
+
+    @Test("detailed help retains options and correlation text using only its parameter-schema factory")
+    func detailedHelpConstructsNoDescriptors() throws {
+        let observation = ResolverFactoryObservation()
+        let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
+        let help = try #require(resolver.localHelp(arguments: ["terminal.send", "--help"], inputs: inputs))
+        #expect(help.contains("Send exact input to one terminal pane."))
+        #expect(help.contains("handle"))
+        #expect(help.contains("input"))
+        #expect(help.contains("correlationId"))
+        #expect(help.contains("correlationId is generated when omitted"))
+        #expect(observation.descriptorNames.isEmpty)
+        #expect(observation.helpSchemaNames == ["terminal.send"])
+    }
+
+    private var inputs: IPCBuiltInMethodCatalogInputs {
+        .init(examples: .init(illustrativeIdentifier: UUIDv7.generate()))
+    }
+
+    private func recordingIndex(_ observation: ResolverFactoryObservation) -> IPCBuiltInMethodIndex {
+        IPCBuiltInMethodIndex(
+            entries: IPCBuiltInMethodIndex().entries.map { entry in
+                IPCBuiltInMethodIndexEntry(
+                    name: entry.name, summary: entry.summary, modelCalls: entry.modelCalls,
+                    correlationPolicy: entry.correlationPolicy,
+                    parameterSchema: {
+                        observation.recordHelpSchema(entry.name)
+                        return try entry.parameterSchema()
+                    },
+                    makeRepresentation: { inputs in
+                        observation.recordDescriptor(entry.name)
+                        return try entry.makeRepresentation(inputs: inputs)
+                    })
+            })
+    }
+}
+
+private final class ResolverFactoryObservation: Sendable {
+    private let descriptors = Mutex<[String]>([])
+    private let helpSchemas = Mutex<[String]>([])
+    var descriptorNames: [String] { descriptors.withLock { $0 } }
+    var helpSchemaNames: [String] { helpSchemas.withLock { $0 } }
+    func recordDescriptor(_ name: String) { descriptors.withLock { $0.append(name) } }
+    func recordHelpSchema(_ name: String) { helpSchemas.withLock { $0.append(name) } }
+    func clear() {
+        descriptors.withLock { $0.removeAll() }
+        helpSchemas.withLock { $0.removeAll() }
+    }
+}

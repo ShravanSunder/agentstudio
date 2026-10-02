@@ -7,123 +7,159 @@ package struct IPCTerminalMethodDescriptors: Sendable {
     package let terminalWait: IPCMethodDescriptor<IPCTerminalWaitParams, IPCTerminalWaitResponse>
 
     init(inputs: IPCBuiltInMethodCatalogInputs) throws {
-        let example = inputs.examples
-        terminalStatus = try IPCBuiltInDescriptorSupport.read(
-            name: "terminal.status",
-            description: "Read lifecycle and capability status for one terminal pane.",
-            parameters: IPCPaneSelectorParams(handle: "self"),
-            result: IPCTerminalStatusResult(
-                paneId: example.paneId,
-                lifecycle: .ready,
-                isReady: true,
-                backend: .local,
-                capabilities: ["input"]
-            ),
-            privilege: .terminalStatusRead,
-            dataScope: .terminalStatus,
-            targetKinds: [.pane],
-            exposure: .allChannels,
-            owner: .runtimeCommand,
-            errors: Self.terminalErrors,
-            agentEligibility: .ownPane
-        )
-        terminalSend = try IPCBuiltInDescriptorSupport.mutation(
-            name: "terminal.send",
-            description: "Send exact input to one terminal pane.",
-            parameters: IPCTerminalSendParams(
-                handle: "self",
-                input: "printf 'hello'\n",
-                correlationId: example.correlationId
-            ),
-            result: IPCTerminalSendInputResult(
-                paneId: example.paneId,
-                commandId: example.commandId,
-                correlationId: example.correlationId,
-                disposition: .accepted,
-                queuePosition: nil
-            ),
-            metadata: .init(
-                privilege: .terminalInputWrite,
-                dataScope: .terminalInput,
-                targetKinds: [.pane],
-                owner: .runtimeCommand,
-                semantics: .accepted,
-                errors: Self.terminalErrors,
-                exposure: .allChannels,
-                agentEligibility: .ownPane)
-        )
-        terminalSnapshot = try IPCBuiltInDescriptorSupport.read(
-            name: "terminal.snapshot",
-            description: "Read one terminal runtime snapshot without terminal output.",
-            parameters: IPCPaneSelectorParams(handle: "self"),
-            result: IPCTerminalSnapshotResult(
-                paneId: example.paneId,
-                lifecycle: .ready,
-                backend: .local,
-                capabilities: ["input"],
-                lastSequence: 1,
-                timestamp: Date(timeIntervalSinceReferenceDate: 0),
-                rendererHealthy: true,
-                readOnly: false,
-                secureInput: false
-            ),
-            privilege: .terminalSnapshotRead,
-            dataScope: .terminalSnapshot,
-            targetKinds: [.pane],
-            exposure: .allChannels,
-            owner: .runtimeCommand,
-            errors: Self.terminalErrors,
-            agentEligibility: .ownPane
-        )
-        terminalWait = try Self.makeWaitDescriptor(inputs: inputs)
+        terminalStatus = try Self.terminalStatusEntry.makeDescriptor(inputs: inputs)
+        terminalSend = try Self.terminalSendEntry.makeDescriptor(inputs: inputs)
+        terminalSnapshot = try Self.terminalSnapshotEntry.makeDescriptor(inputs: inputs)
+        terminalWait = try Self.terminalWaitEntry.makeDescriptor(inputs: inputs)
     }
 
-    private static func makeWaitDescriptor(
-        inputs: IPCBuiltInMethodCatalogInputs
-    ) throws -> IPCMethodDescriptor<IPCTerminalWaitParams, IPCTerminalWaitResponse> {
-        let waitParameters = IPCTerminalWaitParams(
-            handle: "self",
-            condition: .titleChanged,
-            timeoutSeconds: 1,
-            afterSequence: nil
-        )
-        return try IPCMethodDescriptor(
-            name: "terminal.wait",
-            description: "Wait for one bounded terminal condition.",
-            parameterSchema: try Self.waitParameterSchema(),
-            resultSchema: try IPCTerminalWaitResponse.ipcSchema(),
-            examples: [
-                .init(
-                    description: "Wait for the title to change",
-                    parameters: waitParameters,
-                    result: IPCTerminalWaitResponse(
-                        observation: IPCTerminalWaitResult(
-                            paneId: inputs.examples.paneId,
-                            condition: .titleChanged,
-                            eventName: .terminalTitleChanged,
-                            commandId: nil,
-                            correlationId: nil,
-                            exitCode: nil,
-                            duration: nil,
-                            healthy: nil
-                        ), timeoutSeconds: 1, wasClamped: false)
-                )
-            ],
-            exposure: .allChannels,
-            requiredPrivileges: [.terminalWait],
-            dataScope: .terminalWait,
-            allowedTargetKinds: [.pane],
-            commandRelationship: .noInteractiveIdentity,
-            executionOwner: .runtimeCommand,
-            principalAvailability: .authenticated,
-            resultSemantics: .accepted,
-            documentedErrors: IPCBuiltInDescriptorSupport.documentedErrors(
-                Self.terminalWaitErrors, agentEligibility: .ownPane),
-            isMutating: false,
-            correlationPolicy: .notAccepted,
-            agentEligibility: .ownPane
-        )
+    init(representations: [String: any IPCMethodDescriptorRepresentation]) throws {
+        terminalStatus = try Self.terminalStatusEntry.typedDescriptor(in: representations)
+        terminalSend = try Self.terminalSendEntry.typedDescriptor(in: representations)
+        terminalSnapshot = try Self.terminalSnapshotEntry.typedDescriptor(in: representations)
+        terminalWait = try Self.terminalWaitEntry.typedDescriptor(in: representations)
     }
+
+    static let terminalStatusEntry = IPCBuiltInMethodEntry<IPCPaneSelectorParams, IPCTerminalStatusResult>(
+        name: "terminal.status", summary: "Read lifecycle and capability status for one terminal pane.",
+        modelCalls: [],
+        correlationPolicy: .notAccepted,
+        makeDescriptor: { entryName, entrySummary, _, inputs in
+            let example = inputs.examples
+            return try IPCBuiltInDescriptorSupport.read(
+                name: entryName,
+                description: entrySummary,
+                parameters: IPCPaneSelectorParams(handle: "self"),
+                result: IPCTerminalStatusResult(
+                    paneId: example.paneId,
+                    lifecycle: .ready,
+                    isReady: true,
+                    backend: .local,
+                    capabilities: ["input"]
+                ),
+                privilege: .terminalStatusRead,
+                dataScope: .terminalStatus,
+                targetKinds: [.pane],
+                exposure: .allChannels,
+                owner: .runtimeCommand,
+                errors: Self.terminalErrors,
+                agentEligibility: .ownPane
+            )
+        })
+
+    static let terminalSendEntry = IPCBuiltInMethodEntry<IPCTerminalSendParams, IPCTerminalSendInputResult>(
+        name: "terminal.send", summary: "Send exact input to one terminal pane.",
+        modelCalls: [],
+        correlationPolicy: .required,
+        makeDescriptor: { entryName, entrySummary, _, inputs in
+            let example = inputs.examples
+            return try IPCBuiltInDescriptorSupport.mutation(
+                name: entryName,
+                description: entrySummary,
+                parameters: IPCTerminalSendParams(
+                    handle: "self",
+                    input: "printf 'hello'\n",
+                    correlationId: example.correlationId
+                ),
+                result: IPCTerminalSendInputResult(
+                    paneId: example.paneId,
+                    commandId: example.commandId,
+                    correlationId: example.correlationId,
+                    disposition: .accepted,
+                    queuePosition: nil
+                ),
+                metadata: .init(
+                    privilege: .terminalInputWrite,
+                    dataScope: .terminalInput,
+                    targetKinds: [.pane],
+                    owner: .runtimeCommand,
+                    semantics: .accepted,
+                    errors: Self.terminalErrors,
+                    exposure: .allChannels,
+                    agentEligibility: .ownPane)
+            )
+        })
+
+    static let terminalSnapshotEntry = IPCBuiltInMethodEntry<IPCPaneSelectorParams, IPCTerminalSnapshotResult>(
+        name: "terminal.snapshot", summary: "Read one terminal runtime snapshot without terminal output.",
+        modelCalls: [],
+        correlationPolicy: .notAccepted,
+        makeDescriptor: { entryName, entrySummary, _, inputs in
+            let example = inputs.examples
+            return try IPCBuiltInDescriptorSupport.read(
+                name: entryName,
+                description: entrySummary,
+                parameters: IPCPaneSelectorParams(handle: "self"),
+                result: IPCTerminalSnapshotResult(
+                    paneId: example.paneId,
+                    lifecycle: .ready,
+                    backend: .local,
+                    capabilities: ["input"],
+                    lastSequence: 1,
+                    timestamp: Date(timeIntervalSinceReferenceDate: 0),
+                    rendererHealthy: true,
+                    readOnly: false,
+                    secureInput: false
+                ),
+                privilege: .terminalSnapshotRead,
+                dataScope: .terminalSnapshot,
+                targetKinds: [.pane],
+                exposure: .allChannels,
+                owner: .runtimeCommand,
+                errors: Self.terminalErrors,
+                agentEligibility: .ownPane
+            )
+        })
+
+    static let terminalWaitEntry = IPCBuiltInMethodEntry<IPCTerminalWaitParams, IPCTerminalWaitResponse>(
+        name: "terminal.wait", summary: "Wait for one bounded terminal condition.",
+        modelCalls: [],
+        correlationPolicy: .notAccepted,
+        parameterSchema: { try Self.waitParameterSchema() },
+        makeDescriptor: { entryName, entrySummary, _, inputs in
+            let waitParameters = IPCTerminalWaitParams(
+                handle: "self",
+                condition: .titleChanged,
+                timeoutSeconds: 1,
+                afterSequence: nil
+            )
+            return try IPCMethodDescriptor(
+                name: entryName,
+                description: entrySummary,
+                parameterSchema: try Self.waitParameterSchema(),
+                resultSchema: try IPCTerminalWaitResponse.ipcSchema(),
+                examples: [
+                    .init(
+                        description: "Wait for the title to change",
+                        parameters: waitParameters,
+                        result: IPCTerminalWaitResponse(
+                            observation: IPCTerminalWaitResult(
+                                paneId: inputs.examples.paneId,
+                                condition: .titleChanged,
+                                eventName: .terminalTitleChanged,
+                                commandId: nil,
+                                correlationId: nil,
+                                exitCode: nil,
+                                duration: nil,
+                                healthy: nil
+                            ), timeoutSeconds: 1, wasClamped: false)
+                    )
+                ],
+                exposure: .allChannels,
+                requiredPrivileges: [.terminalWait],
+                dataScope: .terminalWait,
+                allowedTargetKinds: [.pane],
+                commandRelationship: .noInteractiveIdentity,
+                executionOwner: .runtimeCommand,
+                principalAvailability: .authenticated,
+                resultSemantics: .accepted,
+                documentedErrors: IPCBuiltInDescriptorSupport.documentedErrors(
+                    Self.terminalWaitErrors, agentEligibility: .ownPane),
+                isMutating: false,
+                correlationPolicy: .notAccepted,
+                agentEligibility: .ownPane
+            )
+        })
 
     private static var terminalErrors: [IPCMethodErrorCase] {
         [

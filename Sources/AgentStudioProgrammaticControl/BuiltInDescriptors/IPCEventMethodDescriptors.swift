@@ -5,32 +5,57 @@ package struct IPCEventMethodDescriptors: Sendable {
     package let eventsUnsubscribe: IPCMethodDescriptor<IPCEventsUnsubscribeParams, IPCEventsUnsubscribeResult>
 
     init(examples: IPCBuiltInMethodExampleContext) throws {
-        eventsSubscribe = try Self.eventMutation(
-            name: "events.subscribe",
-            description: "Subscribe this connection to a non-empty set of event names.",
-            parameters: IPCEventsSubscribeParams(
-                eventNames: [.terminalCommandFinished],
-                correlationId: examples.correlationId
-            ),
-            result: IPCEventSubscriptionResult(
-                subscriptionId: examples.subscriptionId,
-                eventNames: [.terminalCommandFinished]
-            ),
-            semantics: .accepted,
-            responseDelivery: .subscription
-        )
-        eventsUnsubscribe = try Self.eventMutation(
-            name: "events.unsubscribe",
-            description: "Remove one event subscription owned by this connection.",
-            parameters: IPCEventsUnsubscribeParams(
-                subscriptionId: examples.subscriptionId,
-                correlationId: examples.correlationId
-            ),
-            result: IPCEventsUnsubscribeResult(subscriptionId: examples.subscriptionId),
-            semantics: .applied,
-            responseDelivery: .single
-        )
+        eventsSubscribe = try Self.eventsSubscribeEntry.makeDescriptor(
+            inputs: IPCBuiltInMethodCatalogInputs(examples: examples))
+        eventsUnsubscribe = try Self.eventsUnsubscribeEntry.makeDescriptor(
+            inputs: IPCBuiltInMethodCatalogInputs(examples: examples))
     }
+
+    init(representations: [String: any IPCMethodDescriptorRepresentation]) throws {
+        eventsSubscribe = try Self.eventsSubscribeEntry.typedDescriptor(in: representations)
+        eventsUnsubscribe = try Self.eventsUnsubscribeEntry.typedDescriptor(in: representations)
+    }
+
+    static let eventsSubscribeEntry = IPCBuiltInMethodEntry<IPCEventsSubscribeParams, IPCEventSubscriptionResult>(
+        name: "events.subscribe", summary: "Subscribe this connection to a non-empty set of event names.",
+        modelCalls: [],
+        correlationPolicy: .required,
+        makeDescriptor: { entryName, entrySummary, _, inputs in
+            let examples = inputs.examples
+            return try Self.eventMutation(
+                name: entryName,
+                description: entrySummary,
+                parameters: IPCEventsSubscribeParams(
+                    eventNames: [.terminalCommandFinished],
+                    correlationId: examples.correlationId
+                ),
+                result: IPCEventSubscriptionResult(
+                    subscriptionId: examples.subscriptionId,
+                    eventNames: [.terminalCommandFinished]
+                ),
+                semantics: .accepted,
+                responseDelivery: .subscription
+            )
+        })
+
+    static let eventsUnsubscribeEntry = IPCBuiltInMethodEntry<IPCEventsUnsubscribeParams, IPCEventsUnsubscribeResult>(
+        name: "events.unsubscribe", summary: "Remove one event subscription owned by this connection.",
+        modelCalls: [],
+        correlationPolicy: .required,
+        makeDescriptor: { entryName, entrySummary, _, inputs in
+            let examples = inputs.examples
+            return try Self.eventMutation(
+                name: entryName,
+                description: entrySummary,
+                parameters: IPCEventsUnsubscribeParams(
+                    subscriptionId: examples.subscriptionId,
+                    correlationId: examples.correlationId
+                ),
+                result: IPCEventsUnsubscribeResult(subscriptionId: examples.subscriptionId),
+                semantics: .applied,
+                responseDelivery: .single
+            )
+        })
 
     private static func eventMutation<Parameters, Result>(
         name: String,

@@ -75,6 +75,17 @@ package struct IPCBuiltInMethodCatalogInputs: Sendable {
     }
 }
 
+extension IPCBuiltInMethodCatalogInputs {
+    package init(examples: IPCBuiltInMethodExampleContext) {
+        self.init(
+            relationships: .init(
+                paneFocus: .noInteractiveIdentity, paneClose: .noInteractiveIdentity,
+                drawerToggle: .noInteractiveIdentity, drawerAddPane: .noInteractiveIdentity,
+                bridgeDiffLoad: .noInteractiveIdentity, bridgeFileViewOpen: .noInteractiveIdentity),
+            examples: examples)
+    }
+}
+
 enum IPCBuiltInDescriptorSupport {
     struct MutationMetadata {
         let privilege: IPCPrivilegeClass
