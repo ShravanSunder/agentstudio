@@ -11,10 +11,40 @@
 #   EXTRA_SWIFT_TEST_ARGS - Additional swift test flags (e.g. "--enable-code-coverage")
 #   XCB_EXTRA_ARGS        - Extra xcbeautify flags (e.g. "--renderer github-actions")
 
+# Give SwiftPM time to cancel and reap its separate helper process group after SIGINT.
+# SwiftPM 6.3.3 uses a 30-second cancellation deadline, then AsyncProcess escalates
+# its child group to SIGKILL and waits: Cancellator.swift:147-189 and
+# AsyncProcess.swift:223-245 at the swift-6.3.3-RELEASE tag.
+SWIFT_TEST_SIGINT_CANCELLATION_GRACE_SECONDS=35
+
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 # shellcheck source=scripts/swift-package-sandbox.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swift-package-sandbox.sh"
+# Observation support is optional to execution, but an incomplete installation
+# must be visible. Keep the original launcher and legacy hang evidence usable.
+if [ -r "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.sh" ] && \
+  [ -r "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.pl" ] && \
+  source "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.sh"
+then
+  :
+else
+  echo "[${LOG_PREFIX:-test}] warning: invocation_observation=unavailable receipt support could not be loaded" >&2
+  swift_test_f2_begin_receipt() { :; }
+  swift_test_f2_collect_events() { :; }
+  swift_test_f2_finalize_resources() { :; }
+  swift_test_f2_attach_receipt() { :; }
+  swift_test_f2_begin_lane_accounting() { :; }
+  swift_test_f2_report_resource_table() { :; }
+  swift_test_f2_print_pending_waits() {
+    print_held_steps_unarrived_at_timeout "$2" "$3"
+  }
+  swift_test_f2_launch_command_group() {
+    shift # The receipt stem is irrelevant when observation support is absent.
+    swift_test_launch_command_group /bin/bash -c \
+      'unset SWIFT_TEST_F2_SIDECAR_LIST; exec "$@"' swift-test-no-receipts "$@"
+  }
+fi
 
 # Maximum test cases Swift Testing may run concurrently inside one test process.
 # OPT-IN, WITH NO DEFAULT, ON PURPOSE.
@@ -846,6 +876,7 @@ large|StartupPerformanceWorkloadScriptTests|concurrent
 large|SurfaceRendererVisibilityIntegrationTests|process-global
 fast|SwiftBuildSlotScriptTests|concurrent
 large|SwiftLaneHangEvidenceTests|concurrent
+large|SwiftLaneHelperCancellationTests|concurrent
 large|SwiftLaneIsolationListGateTests|concurrent
 large|SwiftLaneReceiptTests|concurrent
 large|SwiftLaneReapingTests|concurrent
@@ -1927,6 +1958,7 @@ write_lane_timing_sidecar() {
       print JSON::PP->new->canonical->encode($record), "\n";
     ' >"$sidecar_path" 2>/dev/null || \
     echo "[${LOG_PREFIX:-test}] warning: timing sidecar unavailable: $sidecar_path" >&2
+  swift_test_f2_attach_receipt "$sidecar_path" || true
   rm -f "$child_timing_file" || true
   return 0
 }
@@ -2031,6 +2063,18 @@ swift_test_process_id_has_survivors() {
   local process_pid="$1"
   perl -e 'use Errno qw(ESRCH); my $pid = shift; exit 0 if kill 0, $pid; exit($! == ESRCH ? 1 : 0);' \
     "$process_pid"
+}
+
+swift_test_wait_for_command_group_exit() {
+  local group_pid="$1"
+  local grace_deadline=$((SECONDS + SWIFT_TEST_SIGINT_CANCELLATION_GRACE_SECONDS))
+
+  while swift_test_process_group_has_survivors "$group_pid" ||
+    swift_test_process_id_has_survivors "$group_pid"
+  do
+    [ "$SECONDS" -lt "$grace_deadline" ] || return 1
+    sleep 1
+  done
 }
 
 swift_test_launch_command_group() {
@@ -2247,6 +2291,7 @@ swift_test_run_with_timeout_body() {
   evidence_stem="$(lane_evidence_stem "$label")"
   mkdir -p "$LANE_EVENT_STREAM_DIR" 2>/dev/null || true
   local child_timing_file="$evidence_stem.child-timing"
+  swift_test_f2_begin_receipt "$evidence_stem" || true
   # The test process appends to this log through AGENTSTUDIO_HELD_STEP_LOG; it is
   # handed over as an absolute path because the test process's working directory
   # is not this script's to promise.
@@ -2268,12 +2313,17 @@ swift_test_run_with_timeout_body() {
   # tracked command PID after both execs.
   SWIFT_TEST_HELPERS_PATH="${BASH_SOURCE[0]}"
   export SWIFT_TEST_HELPERS_PATH
-  if ! swift_test_launch_command_group \
+  if ! swift_test_f2_launch_command_group "$evidence_stem" \
     /bin/bash -c \
     'set -u -o pipefail; source "$SWIFT_TEST_HELPERS_PATH"; swift_test_run_pipeline_child "$@"' \
     swift-test-pipeline "$output_file" "$child_timing_file" "$xcb_pipe" "$held_step_log" "$@"
   then
     echo "[$LOG_PREFIX] failed to launch command process group for '$label'" >&2
+    swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" launch_error || true
+    swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+      "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
+    write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
+      "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" "" || true
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 1
   fi
@@ -2301,6 +2351,9 @@ swift_test_run_with_timeout_body() {
       wait "$command_pid" 2>/dev/null || true
       swift_test_unregister_active_command_group "$command_pid"
       swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+      swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" watchdog_error || true
+      swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+        "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
       discard_empty_held_step_log "$held_step_log"
       rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
       local retained_event_stream=""
@@ -2338,7 +2391,8 @@ swift_test_run_with_timeout_body() {
     # Read the stream before terminating anything: this names what was still
     # executing at the timeout, not what survived the kill.
     print_running_parameterized_cases_at_timeout "$event_stream_file"
-    print_held_steps_unarrived_at_timeout "$held_step_log" "$output_file"
+    swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" before_reap || true
+    swift_test_f2_print_pending_waits "$evidence_stem" "$held_step_log" "$output_file" || true
     print_timeout_process_diagnostics "$label" "$command_pid" "$evidence_stem"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     print_swift_test_output_tail "$output_file" || true
@@ -2349,30 +2403,42 @@ swift_test_run_with_timeout_body() {
     # cross-filesystem move would not — it would leave the child appending to an
     # unlinked inode.
     preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
-    swift_test_signal_command_group TERM "$command_pid"
-    terminate_lane_child_tree TERM "$command_pid"
-    # Writing the report IS the grace period. It is work the lane must do anyway,
-    # so a child that honours TERM exits while it happens and no `sleep` has to
-    # guess how long that takes.
-    swift_test_record_lane_peaks "$output_file" "$event_stream_file"
-
-    if lane_run_has_survivors "$command_pid" "$event_stream_file"; then
-      swift_test_signal_command_group KILL "$command_pid"
-      terminate_lane_child_tree KILL "$command_pid"
-      # The tree walk cannot see a survivor that re-parented, so sweep this run's
-      # token as well. SIGKILL can be neither caught nor ignored, so the wait
-      # below returns as soon as the kernel has finished teardown — however long
-      # that takes on this machine. The only thing that could hold it is a
-      # process wedged in an uninterruptible kernel wait, which is a kernel fault
-      # outside this runner's remit and already covered by the job-level timeout.
-      kill_lane_processes_by_run_token "$event_stream_file"
+    local timeout_reap_stage
+    swift_test_signal_command_group INT "$command_pid"
+    if swift_test_wait_for_command_group_exit "$command_pid"; then
       wait "$command_pid" 2>/dev/null || true
-      echo "[$LOG_PREFIX] lane-report timeout_reap=killed"
+      swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+      timeout_reap_stage=sigint_cancelled
     else
-      echo "[$LOG_PREFIX] lane-report timeout_reap=terminated"
-      wait "$command_pid" 2>/dev/null || true
+      # SwiftPM's SIGINT handler owns helper-group cancellation. Only take over
+      # with TERM/KILL if the tracked command group outlives its cancellation grace.
+      swift_test_signal_command_group TERM "$command_pid"
+      terminate_lane_child_tree TERM "$command_pid"
+      # Writing the report IS the TERM grace period. It is work the lane must do
+      # anyway, so a child that honours TERM exits while it happens.
+      swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+
+      if lane_run_has_survivors "$command_pid" "$event_stream_file"; then
+        swift_test_signal_command_group KILL "$command_pid"
+        terminate_lane_child_tree KILL "$command_pid"
+        # The tree walk cannot see a survivor that re-parented, so sweep this run's
+        # token as well. SIGKILL can be neither caught nor ignored, so the wait
+        # below returns as soon as the kernel has finished teardown — however long
+        # that takes on this machine. The only thing that could hold it is a
+        # process wedged in an uninterruptible kernel wait, which is a kernel fault
+        # outside this runner's remit and already covered by the job-level timeout.
+        kill_lane_processes_by_run_token "$event_stream_file"
+        wait "$command_pid" 2>/dev/null || true
+        timeout_reap_stage=killed
+      else
+        wait "$command_pid" 2>/dev/null || true
+        timeout_reap_stage=terminated
+      fi
     fi
+    echo "[$LOG_PREFIX] lane-report timeout_reap=$timeout_reap_stage"
     swift_test_unregister_active_command_group "$command_pid"
+    swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+      "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
     discard_empty_held_step_log "$held_step_log"
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     local retained_event_stream=""
@@ -2405,6 +2471,9 @@ swift_test_run_with_timeout_body() {
     should_preserve_event_stream=1
   fi
 
+  swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" command_exit || true
+  swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+    "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
   # A width comparison compares what ran, so it keeps every ledger, passing or not.
   if [ "$should_preserve_event_stream" -eq 1 ] || [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ]; then
