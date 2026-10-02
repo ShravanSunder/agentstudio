@@ -69,7 +69,9 @@ struct CLILatencyBenchmarkScriptTests {
         #expect(report["cleanup"] as? String == "closedOwnedPane")
         // Runtime duration is measured, never a correctness deadline. The
         // synthetic report test above owns exact budget-verdict arithmetic.
-        #expect(output.terminationStatus == 0 || output.terminationStatus == 1)
+        let allFamiliesPassed = families.allSatisfy { $0["verdict"] as? String == "PASS" }
+        #expect(report["verdict"] as? String == (allFamiliesPassed ? "PASS" : "FAIL"))
+        #expect(output.terminationStatus == (allFamiliesPassed ? 0 : 1))
         let unmeasured = try #require(report["notMeasured"] as? [[String: Any]])
         #expect(unmeasured.map { $0["family"] as? String } == ["line", "title", "notify"])
         #expect(unmeasured.allSatisfy { $0["verdict"] as? String == "NOT MEASURED" })
