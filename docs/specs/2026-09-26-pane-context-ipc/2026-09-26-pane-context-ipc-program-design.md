@@ -1,6 +1,20 @@
 # Enable pane agents: how it is built
 
-Date: 2026-10-01. **Revision 22**: the status value type is renamed `AgentSessionStatus`, because main already has `Core/Models/SessionStatus.swift` (the zmx backend session lifecycle state machine) and CI's compile caught the redeclaration. The atom keeps its owner-approved name, `SessionStatusAtom`, and its state stays `SessionStatusState`. **Revision 21**: the owner allowed the directory's thin publish at the graph commit. The rule, clarified: main-actor touches to main-owned state are fine; derivation and work stay off-main. **Revision 20** (advisor membership-directory review, M1–M3 accepted): mirror the existing structural placement with no tab id; one publisher at `commitPaneStates`; an atomic boot install; a stated linearization; auth parity; a bounded affected-owner invalidation with a lazy-start handshake. The main-actor allowance for the publication is pending the owner. **Revision 19** (owner decisions): the R3a exception is accepted. Membership source B, a directory, with its draft written into Gaps item 6 for review by the Sol xhigh advisor. Owner rule: nothing on the main actor. **Revision 18**: A1's remaining double-loss, identical-content case is named. The content fold is an exception to Spec R3a, so it needs the owner's acceptance (Gaps item 7). Until then, R3a's strict rule governs. **Revision 17** (advisor rev-16 verification):
+Date: 2026-10-02. **Revision 23** folds in the decisions settled during delivery, 2026-10-01/02. Each was recorded first on board threads 01a0cdcb (IPC) and 01a0cdc9 (coordination), and each is anchored in code on `pane-context-ipc` or `fast-cli-store`:
+- the display contract change Panes asked for (`own` / `includingDrawers` `PaneMessageCounts` and the `AgentMessageAttentionType` classifier; board 01a0f7b4);
+- the newest-blocking-ask tie-break;
+- the bounded `pane.context.get` reply (exact envelope overhead, a binary search on the detail budget) and source-list continuation;
+- `omittedPromptCount`;
+- the wire rules for `pane.*` (safe-integer numbers, single-case enums, the uniform form bound, id-less requests);
+- `sessionEnded(bindingGenerationId:)`;
+- the Elicitation field cut;
+- `pendingAffectedOwners` collapsing to `.all`;
+- auth reading the membership directory synchronously;
+- the publication lane fencing by current membership;
+- the one App-only `SessionsPaneContextComposition`;
+- for the fast CLI PR: the raw `command.execute` request and its error data, `terminal.wait` clamping and reporting (this replaces the short-lived `IPCTerminalWaitUpperBound` idea), the store-identified `cliStoreReadThrough`, and the `SessionsCommitParticipant` drain seam.
+
+**Revision 22**: the status value type is renamed `AgentSessionStatus`, because main already has `Core/Models/SessionStatus.swift` (the zmx backend session lifecycle state machine) and CI's compile caught the redeclaration. The atom keeps its owner-approved name, `SessionStatusAtom`, and its state stays `SessionStatusState`. **Revision 21**: the owner allowed the directory's thin publish at the graph commit. The rule, clarified: main-actor touches to main-owned state are fine; derivation and work stay off-main. **Revision 20** (advisor membership-directory review, M1–M3 accepted): mirror the existing structural placement with no tab id; one publisher at `commitPaneStates`; an atomic boot install; a stated linearization; auth parity; a bounded affected-owner invalidation with a lazy-start handshake. The main-actor allowance for the publication is pending the owner. **Revision 19** (owner decisions): the R3a exception is accepted. Membership source B, a directory, with its draft written into Gaps item 6 for review by the Sol xhigh advisor. Owner rule: nothing on the main actor. **Revision 18**: A1's remaining double-loss, identical-content case is named. The content fold is an exception to Spec R3a, so it needs the owner's acceptance (Gaps item 7). Until then, R3a's strict rule governs. **Revision 17** (advisor rev-16 verification):
 - F1: the last zero-main-actor claims are corrected (the person-action row and the proof boundary).
 - F4: the old producer paragraph is replaced.
 - A1: a fold needs exactly one open prompt with identical `questions`.
@@ -102,14 +116,28 @@ Nothing computes on the main thread.
    - **`command.execute` goes straight to the app too.** Today it costs three
      round trips (`system.capabilities`, `command.list`, then the call;
      `AgentStudioIPCClientCommandLineRunner.swift:84-118,194-227`). Now the CLI
-     sends `{ commandId, arguments }` with arguments as the raw strings the
-     person or agent typed (`--arg key=value`), and the app parses and
-     validates them against the command's own spec, returning
-     `invalidArguments { field, expected }` or
-     `unknownCommand { closestMatches }` with correction data.
+     sends the raw strings the person or agent typed (`--arg key=value`):
+     - **The wire is a hard cutover** to `IPCRawCommandExecutionRequest
+       { commandId, correlationId, arguments: [String: String] }`.
+     - **The app parses.** It parses the arguments against the command's own
+       `AppCommand.ipcSpec`, infers the one variant they fit, and honours an
+       explicit `kind`.
+     - **One generic stage is added.** `AppIPCTypedMethodRegistration` gains
+       a prepare stage (decode → prepare → validate → authorize → execute).
+       Every other registration uses an identity prepare, so its behaviour is
+       unchanged.
+     - **Errors reuse the existing vocabulary.** A bad argument is
+       `invalidArguments { reason, fieldPath: "$.arguments.<name>", expected }`
+       (-32602). An unknown command is
+       `unknownCommand { reason, commandId, closestMatches }`, with at most
+       5 matches.
    - **Server-owned limits stay on the server.** `terminal.wait` sends the
-     requested wait; the app clamps it to its live maximum and says so in the
-     result, instead of the CLI reading the maximum from discovery.
+     requested wait, and the CLI never reads or copies the maximum.
+     - The intake admits any finite, non-negative timeout.
+     - The app clamps it to `AppPolicies.IPC.maximumTerminalWaitSeconds`.
+     - `IPCTerminalWaitResponse` gains the required fields `timeoutSeconds`
+       (the effective wait) and `wasClamped`.
+     - The advertised schema has no maximum.
    - **Discovery is explicit only:** `system.capabilities`, `command.list`
      and `agentstudio help --live`. A `--reload-catalog` flag asks the app to
      rebuild its catalog on demand.
@@ -183,12 +211,33 @@ Nothing computes on the main thread.
        advances that cursor and emits telemetry with the reason class.
      - It never marks rows in the CLI store.
      - The drain is idempotent by `message_id`.
+     - **The cursor joins the effect's commit (rev 23).** Sessions exposes
+       one general seam, `SessionsCommitParticipant { commit(in: Database) }`,
+       for "a write that joins the Sessions commit".
+       - `SessionsRepository.apply` runs it inside its single write closure on
+         all three return paths: operation replay, occurrence replay and insert.
+         A throw rolls back the whole write, effect included. A duplicate still
+         advances the cursor.
+       - Live callers pass no participant and are unchanged.
+       - The App's drain implements it as the cursor upsert. The App owns the
+         table and its migration.
+       - A refusal never reaches Sessions. It advances the cursor in its own
+         transaction, through the same `local.sqlite` writer that
+         `WorkspaceSessionsSQLiteAccess` wraps. There's no second writer.
+       - Session-restore R3's lifecycle intake reuses the same seam.
    - **Cleanup stays with the writer.**
-     - The app's `auth.login` result carries
-       `cliStoreReadThrough { lifecycleReport, outbox }`: the highest row each
-       of its cursors has handled for this `store_id`.
-     - After its call, the CLI deletes rows at or below those marks once
-       they're about a day old.
+     - The app's `auth.login` result carries the required field
+       `cliStoreReadThrough`. It's either `null` or the closed object
+       `{ storeId, outbox, lifecycleReport? }`: the store it describes and the
+       highest row each of the app's cursors has handled for that store.
+     - The CLI purges only when `storeId` equals its own store's identity
+       (`cli_store_identity.store_id`). A `null`, unknown or mismatched
+       `storeId` purges nothing (rev 23). Why: a replaced or foreign file on
+       the same channel can hold unread ids at or below the app's counter for
+       the old file.
+     - After its call, the CLI deletes rows at or below the matching store's
+       marks once they're about a day old. Age alone never deletes a row
+       above them.
      - **A row the app hasn't read is never deleted.** Deleting an unread
        `sessionEnd` would leave the pane's last "agent running" look
        standing, with no end and no loss marker, and a reboot would then
@@ -229,6 +278,17 @@ Nothing computes on the main thread.
      kind and the event's provider fields. It excludes everything the app adds
      on arrival: admission time, resolved freshness, correlation id. Freshness
      and admission time are still stored, outside the fingerprint.
+   - **"Content" means the recorded canonical intent (rev 23).** For R7a,
+     what counts as content is the typed, translated event the app records
+     and acts on. That's provider, session, event, turn, subject ids and the
+     decoded typed status fields, including the projected AskUserQuestion
+     questions. It's hashed in a stable canonical order. Provider fields the
+     app discards are not content: non-question `tool_input`,
+     `tool_response`, cwd, transcript path, duration, and the Elicitation
+     fields dropped at the projection ("Provider signals for the status
+     tree"). So the same occurrence that differs only in a
+     discarded field replays, and a difference in any recorded field
+     conflicts. No raw payload is kept, and there's no extra wire field.
    - **Ordering is durable admission order.** Each evidence row gets an
      additive `admission_sequence` column: the `commit_revision` of the
      operation that admitted it. The reducer orders by it, so a wall-clock
@@ -312,7 +372,7 @@ installed provider version (Spec R6).
 | failed(summary) | **`StopFailure`** (PR B). The summary is its `error` category; the trace shows `"error":"authentication_failed"` | not in hooks (app-server only), so it stays unknown |
 | provider prompt, approval (S13) | `PermissionRequest` (installed; report-only) opens it. It carries `tool_name`/`tool_input` but no `tool_use_id`, so no completion can be proved to be its own. It resolves at the turn boundary (`Stop`, `StopFailure`, `UserPromptSubmit`) or session end, whether you allowed or denied it in the terminal | `PermissionRequest` (installed; report-only) opens it. The same rule: it resolves at a turn boundary (`Stop`, `UserPromptSubmit`) or session end |
 | provider prompt, question (S13) | **`PreToolUse` with `tool_name == "AskUserQuestion"`** (PR B decodes `tool_name`, `tool_use_id`, question and choices) opens it; that tool's `PostToolUse` resolves it | not in hooks (app-server `requestUserInput` only) |
-| provider prompt, MCP form (S13) | **`Elicitation`** opens it (`mcp_server_name`, `message`, `mode`, `requested_schema`), and **`ElicitationResult`** resolves it (`action`, `content`). The 2.1.286 trace carries **no `elicitation_id`** on either event. A no-id result resolves nothing, and prompts without an id resolve at a turn boundary or session end. That's the conservative R3a rule: a lost opening makes any attribution unprovable (rev 17, A2) | none |
+| provider prompt, MCP form (S13) | **`Elicitation`** opens it and **`ElicitationResult`** resolves it. Rev 23: the `session.event` carries only the tool name, tool call id, elicitation id and a bounded message summary. `requested_schema`, `content`, `mcp_server_name` and `action` are dropped at the projection, so no form content or answer is ever kept as Sessions evidence (board 01a0f897, corrected in 01a0f89b). The 2.1.286 trace carries **no `elicitation_id`** on either event. A no-id result resolves nothing, and prompts without an id resolve at a turn boundary or session end. That's the conservative R3a rule: a lost opening makes any attribution unprovable (rev 17, A2) | none |
 | `Notification` | not a status input. Its `agent_needs_input` type covers only background agent-view sessions and one setup question, not a foreground blocked agent. | none |
 | agent ask | the session's own open `ask` from `agentstudio` (PR B) | same |
 
@@ -358,7 +418,25 @@ Rules this sets for the reducer:
 | S13 Provider prompt | Sessions | modified `SessionsEvidenceReducer` / `SessionStatusState` | `ProviderPrompt { key, reason: .approval \| .question, observedAt, summary }`, keyed by `ProviderPromptKey = .toolCall(id) \| .elicitation(id) \| .permission(sequence)` | existing `session.event` params gain the decoded tool name, tool call id and elicitation id | derived from stored evidence |
 | S11 Link (B2) | Bridge | Bridge contract PR types | `BridgeLinkContributor`, membership unions v3 | port `PaneLinkMembershipPort` (Bridge-defined) | persisted by Bridge |
 | S12 CLI store | `agentstudio` CLI (later agentd) | new target `AgentStudioCLIStore`. The fast CLI + CLI store PR lands the foundation: `cli_store_identity`, `cli_outbox` for today's notice kinds, the read-through and the purge. Session-restore R3 adds `cli_lifecycle_report`. This PR adds `cli_state` and the `pane.message.send` notice kind in the outbox | GRDB repository; rows parse into `CLIStateEntry` / `CLIOutboxEntry` unions | one SQLite file in the channel's per-user IPC data root; additive GRDB `DatabaseMigrator` migrations | persisted |
-| Display value | PaneContextService (computes) | new runtime atom `PaneContextPresentationAtom` (owner-approved 2026-09-30: a runtime cache only, with as little main-actor work as possible) | `PaneContextDisplay { revision, agentTitle?, agentLine?, openAskCount, unreadNoticeCount, newestOpenAskId?, pullRequests }` | UI: `AtomFamily<PaneId, …>` via a thin apply | derived, never stored |
+| Display value | PaneContextService (computes) | new runtime atom `PaneContextPresentationAtom` (owner-approved 2026-09-30: a runtime cache only, with as little main-actor work as possible) | `PaneContextDisplay { revision, agentTitle?, agentLine?, own: PaneMessageCounts, includingDrawers: PaneMessageCounts, pullRequests }` (rev 23 hard cutover; "Contracts PR C consumes") | UI: `AtomFamily<PaneId, …>` via a thin apply | derived, never stored |
+
+**Wire rules for `pane.*` (rev 23):**
+- **Numbers are safe integers.** Every integer on the wire is a JSON number
+  no larger than `IPCSchemaScalars.maximumExactInteger`. A value above that
+  is refused, never rounded.
+- **Ownership is declared.** Every `pane.*` method targets
+  `.credentialPaneOnly`, executes in `IPCExecutionOwner.paneContextService`,
+  and writes need `IPCPrivilegeClass.paneContextWrite`.
+- **A single-case wire enum's schema is that case's object schema**,
+  discriminator included. It's never a one-alternative `oneOf`, which
+  `IPCJSONSchema` rejects. The fast test
+  `IPCPaneContextWireContractTests/productionBuiltInCatalogConstructs` pins it.
+- **Session summaries say what they left out.** The DTO
+  `IPCPaneSessionSummary` carries a required `omittedPromptCount`: a
+  non-negative safe integer with no initializer default, required on decode.
+  It maps one to one from Core's `SessionSummary.omittedPromptCount`, so a
+  bounded projection never truncates silently on the wire. The existing
+  `session.*` DTOs are unchanged.
 
 ## Connections (shared IPC server change)
 
@@ -371,7 +449,7 @@ connection (`:593-617`), and the transport already loops over partial writes
 (`UnixSocketTransport.swift:86-116`), but the blocking `write` runs on the
 writer actor's cooperative thread.
 
-The change keeps what works and adds four rules:
+The change keeps what works and adds five rules:
 
 1. **Admission stays serial and in order.** The reader decodes frames and
    admits them one at a time. `auth.login` and pre-auth checks run inline, so
@@ -414,6 +492,11 @@ The change keeps what works and adds four rules:
      (`IPCEventBroker.swift:119-137`), but each delivery now costs only an
      enqueue. So one stalled subscriber can't hold up publication to the
      others.
+5. **A request without an id gets no reply (rev 23, decided 2026-10-01).**
+   The connection reader skips JSON-RPC notifications before any handler
+   runs. So an id-less `pane.context.get` gets no reply and spends no read
+   budget. Every handler that replies gets its request id as a non-optional
+   value.
 
 **One settle point.** `PaneContextService.settleAsk(id, cause)` is the only
 writer of an ask's terminal state. Causes are `answer`, `dismiss`,
@@ -616,18 +699,20 @@ atom boundaries", item 5).
   expiry and blocking-ask deadline across its panes. When it fires, the service
   settles expired asks and marks lines stale, then publishes. Nothing waits for
   another write.
-- **Session end reaches lines.** Sessions sends `sessionEnded(sessionKey)`
-  through the App-composed port; the service marks that writer's Agent Lines
-  stale and publishes.
+- **Session end reaches lines.** Sessions sends
+  `sessionEnded(bindingGenerationId:)` through the App-composed port; the
+  service marks the Agent Lines written under that binding generation stale
+  and publishes. Keying by binding generation, not by conversation, means a
+  resumed conversation's new binding is never marked stale by its old one's
+  end.
 - **Any detail change bumps the revision.** `PaneContextRevision` (per pane)
   advances inside every transaction that changes anything `readDetail`
   returns, including answers, receipts, read state and settled-message
   retention. So an open popover re-reads even when counts don't change.
-- **Drawer moves.** They depend on the membership decision (Gaps item 6); rev 14's
-  claim of an existing topology feed was wrong. Whatever the source, the rule
-  holds: a drawer's owner change bumps both owners' revisions, and a `.more(source:)`
+- **Drawer moves.** The source is the membership directory (Gaps item 6). A
+  drawer's owner change bumps both owners' revisions, and a `.more(source:)`
   read admits the source only if it's the owner or one of its drawers **at read
-  time**.
+  time**, by one locked directory read.
 
 ## Contracts PR C consumes (the typed seams)
 
@@ -647,12 +732,15 @@ struct PaneContextReadRequest: Sendable, Equatable {
 enum PaneContextReadPage: Sendable, Equatable {
     case first
     case more(source: PaneId, after: LiveMessageCursor)   // continue one source pane's live messages
+    case moreSources(after: PaneId)        // rev 23: continue the list of sources itself
 }
 /// Live messages of one source pane are ordered by (asks before notices, then
 /// newest event position first); the cursor is the last (rank, position) returned.
 struct LiveMessageCursor: Sendable, Equatable { let rank: Int; let position: UInt64 }
 struct DetailTruncation: Sendable, Equatable {
     let omitted: [OmittedLiveMessages]     // one per source pane with live messages left out
+    let remainingLiveSources: Int          // rev 23: sources with live messages not even listed
+    let nextSourcesAfter: PaneId?          // pass back as .moreSources(after:) while > 0
 }
 struct OmittedLiveMessages: Sendable, Equatable {
     let source: PaneId; let openAsks: Int; let unreadNotices: Int
@@ -669,7 +757,8 @@ struct PaneContextDetail: Sendable, Equatable {
     let revision: PaneContextRevision  // bumps on ANY change the detail shows
     let agentTitle: String?
     let agentLine: AgentLineDetail?    // Panes E6 fields + writer + stale
-    let session: SessionSummary?       // bound session, AgentSessionStatus, provider prompt ages
+    let session: SessionSummary?       // bound session, AgentSessionStatus, provider prompt ages;
+                                       // its prompt list is bounded and carries omittedPromptCount (rev 23)
     let messages: [AgentMessageDetail] // open asks, unread notices, then settled (retention below)
     let drawerMessages: [DrawerMessageGroup]  // owner pane only, labeled by source pane
     let links: PaneLinksDetail         // .unknown until B2
@@ -747,6 +836,49 @@ enum MessageActionResult: Sendable, Equatable {
 }
 ```
 
+**The display value (rev 23 hard cutover; Panes' request, board 01a0f7b2,
+accepted in 01a0f7b4).** Rev 22's `openAskCount`, `unreadNoticeCount` and
+`newestOpenAskId` couldn't drive the chip count, its tint or the
+blocking-ask auto-open without PR C deriving them on the main actor. They're
+removed:
+
+```swift
+struct PaneContextDisplay: Sendable, Equatable {
+    let revision: PaneContextRevision
+    let agentTitle: String?; let agentLine: AgentLineDetail?
+    let own: PaneMessageCounts               // this pane's messages only
+    let includingDrawers: PaneMessageCounts  // own + its drawer children's; equals own for a drawer child
+    let pullRequests: PullRequestSummaryDetail
+}
+struct PaneMessageCounts: Sendable, Equatable {
+    let needsApprovalCount: Int    // open blocking asks
+    let needsReplyCount: Int       // open non-blocking asks
+    let attentionCount: Int        // unread notices, attention | failure
+    let informationalCount: Int    // unread notices, info | done
+    let newestOpenBlockingAskId: AgentMessageId?
+}
+enum AgentMessageAttentionType: Sendable, Equatable {   // Core/PaneContext/Contracts, pure
+    case needsApproval; case needsReply; case attention; case informational
+    static func classify(shape: AgentMessageShape, importance: MessageImportance) -> Self
+}
+```
+
+- **The classifier picks the type only.** A blocking ask is `needsApproval`
+  and a non-blocking ask is `needsReply`. A notice is `attention` for
+  attention or failure, and `informational` for info or done. `AskReason`
+  doesn't pick the type. Both sides use it: PR B for the counts, and PR C for
+  the popover partitions.
+- **Counts include outstanding messages only.**
+- **The drawer rule.** An owner's chip reads `includingDrawers`, and a drawer
+  child's chip reads `own`. Every cross-pane aggregate sums `own` only, so
+  nothing is counted twice.
+- **The newest blocking ask** is the one with the greatest `sentAt`.
+  - Ties break by composed view order: the owner first, then its drawers.
+  - Within one source, ties break by that source's position.
+  - Positions are never compared across sources.
+- **Where it's computed:** off-main in the service, by `PaneMessageCountFold`,
+  then published through the lane like any other display change.
+
 Rules the implementations keep:
 - **Answer validation is part of the commit.** `answer` checks, in one
   transaction on the datastore actor, that the ask is `open`, then that the
@@ -760,6 +892,12 @@ Rules the implementations keep:
   `required`. Anything else (nested objects, arrays, `oneOf`) is refused at
   send time with `invalidField(form)`, so no unanswerable form is ever
   stored.
+- **Every form has one size bound (rev 23).** Any `AskForm` (choices, free
+  text or elicitation) larger than 8 KiB encoded is refused `tooLarge(form)`.
+  So is an elicitation with more than 16 properties. A form that's the
+  wrong *shape* is a different refusal, `invalidField(form)`: empty or
+  duplicate choice ids, or an unsupported schema. Size is never reported as
+  shape, or shape as size.
 - **Terminal records answer honestly.** A `dismiss` or `answer` on a settled
   message returns its terminal state; a purged id returns `notFound`; a
   withdrawn notice reads back as `.notice(.withdrawn)` after a restart.
@@ -797,7 +935,7 @@ before anything is written.
 | Message `body` | 4 KiB UTF-8 | `tooLarge` |
 | `why` | 1 KiB | `tooLarge` |
 | Choices | ≤ 12, each label ≤ 200 B | `tooLarge` |
-| Elicitation schema | ≤ 16 properties, ≤ 8 KiB encoded | `tooLarge` |
+| Any ask form (rev 23: uniform) | ≤ 8 KiB encoded; an elicitation also ≤ 16 properties | `tooLarge(form)`; a wrong shape is `invalidField(form)` |
 | Answer text / form values | 8 KiB | `invalidAnswer(tooLarge)` |
 | Actions per message | ≤ 4, each encoded ≤ 1 KiB | `tooLarge` |
 | Agent Line (E6 fields) | summary ≤ 200 B; detail ≤ 2 KiB; monitoring target, blocked action or failed summary ≤ 200 B; step n and m ≤ 10 000; refs ≤ 8, each ≤ 512 B (PR B owns these numbers; Panes E6 delegates limits to the IPC design) | `tooLarge` |
@@ -805,7 +943,8 @@ before anything is written.
 | Open asks per pane | 32; a 33rd `send`/`ask` | refused `tooLarge(openAsks)`, nothing written |
 | Unread notices per pane | 200 | a 201st is refused `tooLarge(unreadNotices)`, nothing written (only the person marks read, Spec R15); a drained outbox row refused this way only advances the app's outbox cursor (plus telemetry), and the CLI store row is untouched |
 | Settled messages kept for reads | 30 min and ≤ 20 per pane (Panes' `paneContextResolvedRequestVisibility`) | older settled rows leave reads; rows stay until pane purge |
-| `pane.context.get` / `readDetail` composed response | one budget of 1 MiB for the whole response, owner and drawers together. Filled in order: the caller pane's open asks; each drawer's open asks; the caller pane's unread notices, newest first; each drawer's unread notices, newest first; settled messages | when the budget is reached, `truncation` lists, per source pane, what was left out and a `messagesAfter` cursor. `readDetail(.more(source:after:))` and the same shape on `pane.context.get { page }` return the next page of that source pane's live messages, so no open ask is unreachable. The source must be the owner or one of its current drawers at read time, else `sourceNotInView`; a pagination request can never read an arbitrary pane |
+| `pane.context.get` / `readDetail` composed response | one budget of 1 MiB for the whole response, owner and drawers together. Filled in order: the caller pane's open asks; each drawer's open asks; the caller pane's unread notices, newest first; each drawer's unread notices, newest first; settled messages | when the budget is reached, `truncation` lists, per source pane, what was left out and a `messagesAfter` cursor. `readDetail(.more(source:after:))` and the same shape on `pane.context.get { page }` return the next page of that source pane's live messages, so no open ask is unreachable. The source must be the owner or one of its current drawers at read time, else `sourceNotInView`; a pagination request can never read an arbitrary pane. When even the list of sources doesn't fit, `remainingLiveSources` and `nextSourcesAfter` continue it through `.moreSources(after:)` (rev 23) |
+| `pane.context.get` reply on the wire (rev 23) | the encoded reply must fit `min(maximum response frame, maximum queued output − 1)` minus the exact measured reply-envelope overhead | the adapter first reads with the full 1 MiB budget. If the encoding doesn't fit, it binary-searches the detail budget between `minimumDetailBytes` and the full budget, at most ⌈log2(range)⌉ reads, and returns the largest page that fits. The floor holds one maximal message plus bounded owner metadata and continuations, so every open ask stays reachable. If even the floor doesn't fit, the reply is `tooLarge(context)`. There's no attempt cap or retry constant |
 | `pane.message.changes` page | ≤ 200 entries or 256 KiB | reply carries `more: true` and `nextPosition`; the CLI reads again |
 
 **Retention of change entries.** A change entry is kept until the session that
@@ -865,6 +1004,27 @@ Dependency rules:
 - Popovers use the typed seams (`PaneContextDetailReading`,
   `PaneContextPersonActing`) through App composition.
 
+**One assembly (rev 23).** Production composition goes through one App-only
+type, `SessionsPaneContextComposition`. Boot and the integration tests call
+the same `make`, so there's no second registry or admission implementation
+in Boot.
+- **What it wires.** Ingestion gets the real `openAskSource` and
+  `sessionEnded` ports. Owner-pane lookup is
+  `PaneContextMembershipDirectory.ownerPaneId(for:)`: a drawer resolves to its
+  parent, and anything else to nil (R5). The live and late Sessions adapters
+  share one ingestion and that directory. The live server gets the IPC
+  pane-context adapter; the spool drain gets the late adapter.
+- **When it's built.** The bridge is connected before `prepareForLaunch`.
+  The composition is built with the IPC server, off the first-frame path. It
+  is published only after preparation succeeds and the cancellation check
+  passes. The coordinator's reference to the service is weak; consumers that
+  need the service (PR C's popover) take it from that same publish point and
+  clear it at shutdown, never from a one-shot read at window creation.
+- **Shutdown order.** Ingress closes before the workspace flush. Then the
+  durable half runs: the spool task joins, then connection handlers, then
+  credential persistence drains. Then `service.stop` runs, so settlements can
+  still reach Sessions, and `ingestion.finish` runs last.
+
 ## MainActor and atom boundaries
 
 **The rule (owner, 2026-09-30): as little work on the main actor as possible.** This section follows the repo's owning docs:
@@ -875,10 +1035,11 @@ Dependency rules:
 
 ### Everything the main actor does in PR B
 
-**Existing hops PR B inherits (not new, but counted).**
-- **Authentication revalidation.** Every authenticated pane-agent request, hooks included, awaits `canonicalPaneMembership` (`AgentStudioIPCAuthentication.swift:109`, awaited at `:384`; server `:319`; wired at `AppDelegate+IPC.swift:87`). It's an O(1) check that the pane is in the workspace, but it's a main-actor hop per request.
-- PR B adds hook events (`PostToolUse`, `PostToolUseFailure`, `StopFailure`, `Elicitation*`), so it **adds hops on this path** unless the membership decision below removes them.
-- The existing `query`-port target tools also hop, even for `self` (server `:407-430`, `AgentStudioIPCQueryAdapter`). PR B's `pane.*` methods don't use them. The own-pane target comes from the authenticated context, and the pane's existence is the same revalidation check above.
+**The inherited hop PR B removes (rev 23).**
+- **Authentication used to hop.** Every authenticated pane-agent request, hooks included, awaited the `@MainActor` `canonicalPaneMembership` callback (`AgentStudioIPCAuthentication.swift:109`, awaited at `:384`). That was an O(1) presence check, but a main-actor hop per request.
+- **Now it reads the membership directory.** It's a synchronous `@Sendable` read (Gaps item 6), so login and revalidation no longer await anything. The predicate, leases, revocation and shutdown rules are unchanged. `PaneIPCIdentityOwner`'s environment check uses the same read.
+- **The directory is installed with the graph.** It's installed atomically, in the same synchronous step that replaces the prepared composition graph. So a reader never sees one without the other.
+- **Other hops stay outside PR B.** The existing `query`-port target tools still hop, even for `self` (server `:407-430`, `AgentStudioIPCQueryAdapter`). PR B's `pane.*` methods don't use them: the own-pane target comes from the authenticated context.
 
 **What PR B adds:**
 1. **Apply display values.** One sink call per batch assigns already-decided `PaneContextDisplay` values into `PaneContextPresentationAtom`.
@@ -902,7 +1063,7 @@ Nothing else. No PR B handler, write, read, deadline or reduction runs on the ma
 | --- | --- | --- | --- |
 | `pane.*` writes: send, ask, withdraw, line, title, claimEpoch | ordered fact, per writer | `PaneContextService` actor; SQL on `WorkspaceSQLiteDatastoreActor` | Ordered and never coalesced. The target is always the credential's own pane (`handle: "self"`), resolved off-main by the principal registry. There's no main-actor target resolution, unlike `command.execute`'s `@MainActor` resolver |
 | `session.event` hooks | ordered fact | Sessions ingestion actor, the existing path (`AgentStudioIPCSessionsAdapter`: "nothing here touches MainActor") | ordered |
-| Pane existence and drawer ownership | ordered membership change | **Open: owner decision "Where off-main readers get pane and drawer membership"** (Gaps item 6). No existing bus fact carries it: `TopologyEvent` holds only repo, worktree and watched-folder facts (`RuntimeEnvelopeCore.swift:134`) | — |
+| Pane existence and drawer ownership | ordered membership change | `PaneContextMembershipDirectory`, published inside `WorkspacePaneGraphAtom.commitPaneStates` (owner decision B, Gaps item 6) | one locked read at each point of use: auth, source-in-view, the lane's current-membership fence, `ownerPaneId(for:)` |
 | Pane viewed | an ordered occurrence per pane, coalesced to the latest instant | the person-initiated, successful-apply point in `PaneTabViewController`'s focus path (item 5 above), with `(paneId, viewedAt)` into a `nonisolated` Sessions mailbox | Sessions applies it only to a `done` admitted before `viewedAt` (monotonic, same process) |
 | Ask deadlines and Agent Line expiry | future eligibility deadline | one reschedulable next-deadline task in the service, on its injected clock | no fleet-wide timer |
 | Retirement | ordered fact | `retirePanesPermanently` calls the service's `nonisolated retire(_:)`, which appends to a `Mutex` mailbox without awaiting, as `PaneActivityClock.retire` already does | no await on the main actor |
@@ -924,7 +1085,18 @@ It follows the shipped `PaneActivityClock` shape: "orders both activity sources 
 3. **One awaited main-actor call per batch.** One drain task takes the whole mailbox and awaits one `@MainActor` sink call with the batch. The sink applies every key inside one `AtomMutationContext` (one aggregate revision bump) and returns.
    - While that call is in flight, new changes coalesce in the mailbox. So a busy main actor gets fewer wakes, never more.
    - Publication order is commit order per pane.
-   - **Removal joins the same lane.** Retirement enqueues a `remove` for the key. After that, the actor drops any later set for a retired key, so a pending or late set can never resurrect it. At shutdown the drain stops; both atoms are runtime-only.
+   - **Removal joins the same lane, fenced by current membership (rev 23).**
+     - **Temporary absence.** An undoable close or a drawer move enqueues a
+       `remove` for the key.
+     - **Later values for that key** are accepted or refused by one
+       synchronous directory read: a key the directory has again is
+       published again. So an Undo that restores the same pane id resumes
+       publishing, with no reactivation API, generation, atom or bus case.
+     - **Only permanent retirement is absorbing.** That's undo expiry or a
+       committed discard, the shared final-retirement edge. After it, the
+       actor drops every later set for the key, so a pending or late set can
+       never resurrect it.
+     - At shutdown the drain stops; both atoms are runtime-only.
 4. **Backstop only.** The atom's `isContentEqual` comparator never does the suppression work; the actor already did it.
 
 Two shapes are deliberately not used:
@@ -952,7 +1124,7 @@ Two shapes are deliberately not used:
 
 - **Class `often`:** a busy agent can write its Agent Line or cross status transitions more than 10 times a minute. Hook traffic itself is higher, but step 1 turns it into rare publications.
 - **Telemetry (Per-Stage Outcome Telemetry)** for `pane_context.presentation_apply` and `sessions.status_apply`: the computed count, the equal-suppressed count, the coalesced count, the batch size, and main-actor held time (total and max per batch).
-- **Proof:** a marker-scoped trace with 15–20 active panes (agents writing lines and asks, hooks flowing). It must show main-actor held time per batch under 1 ms, the `heavy` threshold, with main-actor occupancy measured separately from await time. Allowed on the main actor: the inherited authentication revalidation hop per authenticated request (until the membership decision, Gaps item 6), the O(1) pane-viewed and retirement submits, and the thin native person-action effects. No PR B handler, write, read, deadline or reduction may run there. The CLI's `cli.call_total_ms` is measured separately.
+- **Proof:** a marker-scoped trace with 15–20 active panes (agents writing lines and asks, hooks flowing). It must show main-actor held time per batch under 1 ms, the `heavy` threshold, with main-actor occupancy measured separately from await time. Allowed on the main actor: the membership directory's few locked assignments inside the existing graph commit (Gaps item 6), the O(1) pane-viewed and retirement submits, and the thin native person-action effects. Authentication no longer hops (rev 23). No PR B handler, write, read, deadline or reduction may run there. The CLI's `cli.call_total_ms` is measured separately.
 
 ## Call paths
 
@@ -1009,6 +1181,7 @@ agentstudio answers
 
 | Table | Key | Columns |
 | --- | --- | --- |
+| `cli_store_identity` (fast CLI PR, migration 001) | one row | `store_id` (a UUIDv7 minted on first open) and `channel` (TEXT `stable` \| `beta` \| `debug`, parsed in Swift; an unknown value fails closed). The app exports the store's path and channel into pane environments as `AGENTSTUDIO_CLI_STORE` and `AGENTSTUDIO_CLI_STORE_CHANNEL`; if either is absent, the CLI skips the store and fails open. A later open with a different channel doesn't write. The app's read-only reader refuses a mismatched or foreign store. The governing row is session-restore PD R3 item 6 |
 | `cli_state` | PK `id`; `UNIQUE (kind, pane_id, session_ref)` | `kind` (`titleWriteNumber` \| `lineWriteNumber` \| `answerPosition`), `pane_id`, `session_ref`, `epoch` and `claim_id` (NULL until claimed; write numbers only), `value` |
 | `cli_outbox` | PK `id`; `UNIQUE (message_id)` | `kind` (`notice`), `pane_id`, `message_id`, `payload_json` (the versioned wire envelope: a recorded exception, decoded only by the live request decoder), `created_at` (UTC). Immutable once written. The CLI deletes rows at or below the app's reported mark after about a day; unread rows are never deleted |
 
@@ -1160,8 +1333,9 @@ GRDB migrations, additive, never a rebuild):
      - auth's `contains(paneID:inWorkspace:)` keeps today's exact predicate (workspace matches and the pane is present);
      - a drawer-source check needs the owner's child list and the child's parent to agree in that same version.
      The mutable map stays private, and reads return compact values; no snapshot copies are handed out. Nothing runs under the lock except assignments and reads.
-   - **Auth.** The `@MainActor` `canonicalPaneMembership` closure is replaced (a hard cutover) by the directory read, for request revalidation, login and `PaneIPCIdentityOwner`'s environment check. The principal registry keeps credential validation, leases, invalidation sequencing, final revocation and shutdown unchanged; directory presence alone grants nothing.
-   - **Invalidation, not a feed (M3).** The directory keeps a bounded `pendingAffectedOwners: Set<PaneId>`: every owner and source whose membership changed since the service last took it. It also has one `AsyncStream<Void>` wake (`bufferingNewest(1)`) with one consumer, the service. On a wake, the service takes and clears the set atomically, then bumps those owners' revisions and recounts.
+   - **Auth.** The `@MainActor` `canonicalPaneMembership` closure is replaced (a hard cutover) by a synchronous `@Sendable` directory read, for request revalidation, login and `PaneIPCIdentityOwner`'s environment check. Login and revalidation no longer await (rev 23). The principal registry keeps credential validation, leases, invalidation sequencing, final revocation and shutdown unchanged; directory presence alone grants nothing.
+   - **Invalidation, not a feed (M3).** The directory keeps a bounded `pendingAffectedOwners`: every owner and source whose membership changed since the service last took it. It also has one `AsyncStream<Void>` wake (`bufferingNewest(1)`) with one consumer, the service. On a wake, the service takes and clears it atomically, then bumps those owners' revisions and recounts.
+     - **The bound (rev 23).** It's `PendingAffectedOwners = .owners(Set<PaneId>) | .all`. Past `AppPolicies.PaneContext.maximumPendingAffectedOwners` (256) it collapses to `.all`. Consuming `.all` is a full reconcile: publish every live owner's current compact facts, and retire every atom key that's no longer live. That's the resnapshot pattern, as in the Bridge state-sync decision.
      - Correctness never depends on the wake: auth and source-in-view checks always read the directory at the point of use.
      - **Lazy-start handshake:** the service subscribes first, then reads the current revision and membership, then reconciles any newer revision. So no change falls between the snapshot and the subscription.
    - **Main-actor cost (allowed by the owner on 2026-10-01, M2: "jumps are fine as ghostty and panes and metal exist there").** The publication is a few locked assignments inside the existing graph commit, on the main actor because the canonical pane graph lives there. It replaces a main-actor hop on **every** agent request. Commit-held time and lock contention are measured in the 15–20-pane trace.

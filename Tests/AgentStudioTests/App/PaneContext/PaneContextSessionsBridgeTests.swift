@@ -187,4 +187,58 @@ struct PaneContextSessionsBridgeTests {
             }
         }
     }
+
+    @Test("B writes its title through real Sessions while admitted A is held; A cannot overwrite B")
+    func replacementTitleSurvivesAdmittedRealSessionsWriter() async throws {
+        try await withPaneContextSessionsBridge { fixture in
+            let bindingA = try await fixture.bindConversation("title-race-A")
+            let writerA = try fixture.sender(bindingA)
+            let epochA = try await fixture.epoch(writer: writerA, stream: .title)
+            try #require(
+                try await fixture.sqliteAccess.read {
+                    try PaneContextSessionsBridge.currentBindingGeneration(paneId: fixture.paneId, in: $0)
+                } == bindingA.bindingGenerationId)
+            try #require(
+                await fixture.service.setTitle(
+                    .init(
+                        paneId: fixture.paneId, writer: writerA, text: "A before race",
+                        writeNumber: .init(epoch: epochA, counter: 1))) == .applied)
+            try #require(try await fixture.detail().agentTitle == "A before race")
+            let held = HeldStep<Void>(
+                "admitted A title before real Sessions replacement and B commit",
+                cancellation: .holdThroughCancellation)
+            await fixture.sqliteAccess.holdNextWrite(held)
+            let pendingA = Task {
+                await fixture.service.setTitle(
+                    .init(
+                        paneId: fixture.paneId, writer: writerA, text: "A must not win",
+                        writeNumber: .init(epoch: epochA, counter: 2)))
+            }
+            do {
+                try await held.firstArrival()
+                let bindingB = try await fixture.bindConversation("title-race-B")
+                try #require(bindingB.bindingGenerationId != bindingA.bindingGenerationId)
+                let writerB = try fixture.sender(bindingB)
+                let epochB = try await fixture.epoch(writer: writerB, stream: .title)
+                try #require(
+                    await fixture.service.setTitle(
+                        .init(
+                            paneId: fixture.paneId, writer: writerB, text: "B title remains",
+                            writeNumber: .init(epoch: epochB, counter: 1))) == .applied)
+                try #require(try await fixture.detail().agentTitle == "B title remains")
+                held.release()
+                #expect(await pendingA.value == .stale(.writerReplaced))
+                #expect(try await fixture.detail().agentTitle == "B title remains")
+                #expect(
+                    try await fixture.sqliteAccess.read {
+                        try PaneContextSessionsBridge.currentBindingGeneration(paneId: fixture.paneId, in: $0)
+                    } == bindingB.bindingGenerationId)
+            } catch {
+                held.retire()
+                _ = await pendingA.value
+                throw error
+            }
+        }
+    }
+
 }
