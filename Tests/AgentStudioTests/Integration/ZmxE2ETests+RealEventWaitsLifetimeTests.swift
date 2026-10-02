@@ -60,6 +60,21 @@ extension E2ESerializedTests.ZmxE2ETests {
         let closeRecorder = try closeSource.attach()
         let openSink = openSource.sink
         let closeSink = closeSource.sink
+        // R3-3 item 2 (review round 3, Lead decision 2026-10-02): a signal
+        // for "this function's own unwind reached eventSource.cancel()" --
+        // see `awaitSessionIdentityOnRealEvent`'s own doc comment. Without
+        // awaiting this, the old assertion below ("still open while
+        // pending") was true in both the fixed and the regressed
+        // implementation at that exact instant, simply because neither
+        // one's teardown had run yet -- not a discriminating oracle.
+        let cancellationRequestedSource = LocalFactSource(
+            vocabulary: FactVocabulary<String, Void>(
+                describeScope: { $0 },
+                describeFact: { _ in "cancellation requested" },
+                isClosing: { _, _ in true }
+            ))
+        let cancellationRequestedRecorder = try cancellationRequestedSource.attach()
+        let cancellationRequestedSink = cancellationRequestedSource.sink
 
         let task = Task {
             try await self.awaitSessionIdentityOnRealEvent(
@@ -69,7 +84,8 @@ extension E2ESerializedTests.ZmxE2ETests {
                 zmxDirectory: temporaryDirectory.path,
                 queue: testQueue,
                 directoryOpenFactSink: { descriptor in openSink("opened", descriptor) },
-                directoryCloseFactSink: { descriptor in closeSink("closed", descriptor) }
+                directoryCloseFactSink: { descriptor in closeSink("closed", descriptor) },
+                cancellationRequestedFactSink: { cancellationRequestedSink("cancelled", ()) }
             )
         }
 
@@ -83,9 +99,15 @@ extension E2ESerializedTests.ZmxE2ETests {
 
         task.cancel()
 
-        // Cancellation is requested here, but the queue that must run the
-        // cancel handler is still suspended -- the descriptor must still be
-        // open.
+        // Awaited before asserting "still open": `dispatch_source_cancel`
+        // is non-blocking (source.h:512), so this fires once the function
+        // has processed cancellation and called it, independent of
+        // `testQueue` still being suspended -- the actual close is queued
+        // on that suspended queue's cancel handler and cannot have run
+        // yet. A regressed bare `defer { close(...) }` would already have
+        // closed the descriptor by the time this same fact fires.
+        _ = try await cancellationRequestedRecorder.expectNext(
+            in: "cancelled", where: { _ in true }, "cancellation requested")
         #expect(
             fcntl(watchedDescriptor, F_GETFD) != -1,
             "the descriptor must stay open while cancellation is pending")

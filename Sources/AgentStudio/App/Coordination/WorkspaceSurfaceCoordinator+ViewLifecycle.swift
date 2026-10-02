@@ -130,6 +130,25 @@ extension WorkspaceSurfaceCoordinator {
         return viewRegistry.terminalSurfaceCreationAuthority(for: paneID, generation: generation)
     }
 
+    /// R3-1 (Lead decision 2026-10-02): the one install point `createView`
+    /// and `createTopologyIndependentTerminalView` both call at their own
+    /// successful-mount moment -- the shared boundary ordinary
+    /// visible/active-tab recovery reaches too, not just repair's own
+    /// explicit success branches. `armedRestoreGeneration` (cold-start's
+    /// own just-armed value) wins when both are present; `pane.id`'s
+    /// pending entry is cleared only once actually installed.
+    private func installRestorePhaseLatchIfPending(
+        onto surface: Ghostty.SurfaceView,
+        for paneID: UUID,
+        armedRestoreGeneration: RestoreGeneration? = nil
+    ) {
+        let generationToInstall = armedRestoreGeneration ?? pendingRestorePhaseLatchesByPaneID[paneID]
+        surface.restorePhaseLatch = generationToInstall
+        if generationToInstall != nil {
+            pendingRestorePhaseLatchesByPaneID.removeValue(forKey: paneID)
+        }
+    }
+
     @discardableResult
     func createView(
         for pane: Pane,
@@ -200,6 +219,8 @@ extension WorkspaceSurfaceCoordinator {
             )
             surfaceManager.attach(managed.id, to: pane.id)
             traceSurfaceAttached(pane: pane, surfaceID: managed.id)
+
+            installRestorePhaseLatchIfPending(onto: managed.surface, for: pane.id)
 
             let view = TerminalPaneMountView(
                 worktree: worktree,
@@ -328,9 +349,15 @@ extension WorkspaceSurfaceCoordinator {
                     preparedRuntime: preparedRuntime
                 )
             else { return .failed(.surfaceAttachmentFailed) }
-            // SR6b: nil except a just-armed cold surface; set only here,
-            // after creation succeeds, never before the arm acknowledgment.
-            attachedSurface.restorePhaseLatch = armedRestoreGeneration
+            // SR6b: nil except a just-armed cold surface, or (R3-1, Lead
+            // decision 2026-10-02) a generation an earlier repair attempt
+            // recorded in `pendingRestorePhaseLatchesByPaneID`
+            // (`executeRepair`, +ViewHelpers.swift) because this pane had
+            // no mountable surface yet -- this shared boundary is what
+            // ordinary visible/active-tab recovery reaches too, not just
+            // repair's own explicit success branches.
+            installRestorePhaseLatchIfPending(
+                onto: attachedSurface, for: pane.id, armedRestoreGeneration: armedRestoreGeneration)
 
             let view = TerminalPaneMountView(
                 restoredSurfaceId: managed.id,
@@ -512,6 +539,16 @@ extension WorkspaceSurfaceCoordinator {
             unregisterHostedView(for: paneId)
         }
         refreshBridgePaneActivities()
+
+        // R3-2 (Lead decision 2026-10-02): the mount a still-pending
+        // post-attach check was registered against is gone now, and
+        // nothing re-registers one on this path -- same reason and
+        // one-disposition shape as `retirePanesPermanently`'s existing
+        // close (WorkspaceSurfaceCoordinator.swift), for the
+        // ordinary-teardown/unmount case that one does not cover.
+        if pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneId) != nil {
+            postAttachRecreationCheckFactSink?(paneId, .uncheckable(.paneUnavailableBeforeFirstRender))
+        }
 
         if shouldUnregisterRuntime {
             let runtimePaneId = PaneId(existingUUID: paneId)

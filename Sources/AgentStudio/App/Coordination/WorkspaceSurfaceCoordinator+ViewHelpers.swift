@@ -392,18 +392,34 @@ extension WorkspaceSurfaceCoordinator {
             let preservedRestorePhaseLatch =
                 viewRegistry.terminalView(for: paneId)?.ghosttySurface?.restorePhaseLatch
                 ?? pendingRestorePhaseLatchesByPaneID[paneId]
+            // R3-1 (review round 3, Lead decision 2026-10-02): recorded
+            // before teardown, not only on a later failure branch. Geometry
+            // can come back unavailable here (`createViewForRepair` ->
+            // `createViewForContentUsingCurrentGeometry` -> empty bounds ->
+            // a preparing placeholder, `nil`) without this attempt counting
+            // as the explicit failure case below -- `createViewForRepair`
+            // still returns non-`nil` for a `TerminalStatusPlaceholderView`.
+            // The eventual real mount, whether a later explicit repair or
+            // ordinary visible/active-tab recovery's plain
+            // `createViewForContent`, reads this pending entry at the one
+            // shared successful-mount boundary (`createView`/
+            // `createTopologyIndependentTerminalView`,
+            // WorkspaceSurfaceCoordinator+ViewLifecycle.swift) and installs
+            // it there -- recording it here, unconditionally, is what makes
+            // that boundary able to find it regardless of which caller
+            // eventually succeeds.
+            if let preservedRestorePhaseLatch {
+                pendingRestorePhaseLatchesByPaneID[paneId] = preservedRestorePhaseLatch
+            }
             teardownView(for: paneId, shouldUnregisterRuntime: false)
             guard createViewForRepair(for: pane) != nil else {
                 Self.logger.error("repair recreateSurface failed for pane \(paneId)")
-                // R2-2: preserve the active generation through this failed
-                // attempt instead of discarding it -- a later repair that
-                // succeeds (recreateSurface again, or createMissingView)
-                // still reinstalls it. The projector's own phase is left
-                // untouched either way; this never clears it and never
-                // re-runs cold classification.
-                if let preservedRestorePhaseLatch {
-                    pendingRestorePhaseLatchesByPaneID[paneId] = preservedRestorePhaseLatch
-                }
+                // R2-2: the generation stays pending through this failed
+                // attempt (recorded above, before teardown) -- a later
+                // repair that succeeds (recreateSurface again, or
+                // createMissingView) still reinstalls it. The projector's
+                // own phase is left untouched either way; this never
+                // clears it and never re-runs cold classification.
                 return
             }
             // `createViewForRepair` returns the bare content view (a

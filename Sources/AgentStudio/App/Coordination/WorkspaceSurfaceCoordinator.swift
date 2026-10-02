@@ -464,6 +464,16 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         postAttachRecreationCheckTasksByPaneID.removeAll()
+        // R3-2 (review round 3, Lead decision 2026-10-02): every pane still
+        // waiting for its first output when the whole coordinator shuts
+        // down never gets one either -- same reason, same one-disposition
+        // shape as `retirePanesPermanently`'s existing per-pane close
+        // (above) and `finishViewTeardown`'s new one
+        // (WorkspaceSurfaceCoordinator+ViewLifecycle.swift). This used to
+        // just clear the map silently.
+        for paneID in pendingPostAttachRecreationChecksByPaneID.keys {
+            postAttachRecreationCheckFactSink?(paneID, .uncheckable(.paneUnavailableBeforeFirstRender))
+        }
         pendingPostAttachRecreationChecksByPaneID.removeAll()
         pendingRestorePhaseLatchesByPaneID.removeAll()
 
