@@ -1,6 +1,10 @@
 # Session restore after a reboot: how it is built
 
-Date: 2026-09-30, revision 21 (owner, option A: warm and unverified reconnects carry the restore script as a fallback plan; the post-attach check is telemetry only). Revision 20 (owner: the CLI store has one writer). `cli_lifecycle_report` rows are immutable, the hook writes once, the app's settlement pass is gone, and cleanup deletes only rows at or below the mark the app returns at login. Unread rows are never deleted. Revision 19 (the N3 residual). The output trigger now comes from the projector's activity window, which opens and closes once per burst and repeats after every quiet. The compact output state has no repeating start edge. Every discarded window sends its close.
+Date: 2026-10-02, **revision 22** (R3 delivery, S3). Two boundaries are settled in code:
+- the foreground observation repository reaches `local.sqlite` only through transaction closures (`ForegroundObservationSQLiteAccess`);
+- the observer reads live pane → zmx session membership off-main from one Core read (`liveZmxSessionsByPane`).
+
+Both are in item 7. Revision 21 (owner, option A: warm and unverified reconnects carry the restore script as a fallback plan; the post-attach check is telemetry only). Revision 20 (owner: the CLI store has one writer). `cli_lifecycle_report` rows are immutable, the hook writes once, the app's settlement pass is gone, and cleanup deletes only rows at or below the mark the app returns at login. Unread rows are never deleted. Revision 19 (the N3 residual). The output trigger now comes from the projector's activity window, which opens and closes once per burst and repeats after every quiet. The compact output state has no repeating start edge. Every discarded window sends its close.
 
 Revision 18 (R3 review round 3, N1–N3):
 - an exit is a trigger for a fresh look, never a record by itself, so a zmx-killed agent keeps its positive look;
@@ -271,6 +275,13 @@ flowchart LR
      - **Columns:** `pane_id` TEXT PK, `zmx_session_id` TEXT, `binding_generation_id` TEXT (nullable), `program` TEXT (parsed into the enum), `observer_launch_id` TEXT, `sequence` INTEGER, `observed_at` TEXT (UTC).
      - **The session identity** is stored as typed columns: `identity_version`, `boot_id`, `daemon_pid`, `daemon_start_seconds`, `daemon_start_microseconds`, `leader_pid`, `leader_start_seconds`, `leader_start_microseconds`, `process_group_id`, `session_created_at`. There's no blob. The repository maps them to and from `ZmxSessionIdentity`, and a row that fails its validation is dropped as no observation.
      - **The Core contract** keeps `sessionIdentity` opaque, as R1's `.warm(identity:)` does.
+     - **How it reaches the database (rev 22).** The repository uses a package `ForegroundObservationSQLiteAccess` of transaction closures, and nothing else.
+       - The App adapter `WorkspaceForegroundObservationSQLiteAccess` sits over Core's `performApplicationLocalWrite`/`Read`, mirroring `SessionsSQLiteAccess`.
+       - No `DatabaseWriter` crosses a module boundary, and Core stays the one transaction owner.
+   - **Which panes it looks at (rev 22).** The observer gets live pane → zmx session membership off-main from one Core-owned read, `WorkspaceSQLiteDatastoreActor.liveZmxSessionsByPane(workspaceId:)`.
+     - It's an async GRDB read of `pane_content_terminal` joined with `pane` for the workspace, provider zmx only. A stored identifier that doesn't parse fails the read rather than being skipped.
+     - It reads the last persisted graph, so it can trail in-memory edits by up to one flush. The observer tolerates that: a removed pane yields nothing, and an added pane is seen on the next look.
+     - There's no main-actor gathering, and no snapshot or receipt contract is reused for it.
    - **The exit watch: push, with the look as the pull fallback** (owner, 2026-09-30). When a look classifies a pane's foreground as an agent, the observer registers one kernel exit watch on **that agent process**: `kqueue` `EVFILT_PROC` `NOTE_EXIT` on macOS, behind the same syscall seam as R1's handoff watch (`pidfd_open` plus `epoll` is the Linux equivalent for a later adapter).
      - **An exit is a trigger, not a record (N1).** `NOTE_EXIT` says the process exited (`kqueue(2)`). It says nothing about what holds the pane's foreground now, or whether the session survived. So the watch writes nothing itself. It makes the pane's look **due now** (`processExited`), and that ordinary look decides:
        - the session answers `observe` with the **same** identity as the look that armed the watch → classify its foreground as any look does and write that: usually `.shell`, or whatever program or agent took over;
@@ -458,6 +469,7 @@ package protocol SessionResumeResolving: Sendable { func resumeEvidence(for inpu
 | CLI store record, migration and cleanup (`cli_lifecycle_report`) | the CLI process (`agentstudio hook`), the only writer | not the app; the app opens the file read-only |
 | Report intake, sweep, `RestoreResumeReadiness` | `CLILifecycleReportIntake` actor, from App IPC initialization after the first frame | existing post-frame path; SQLite I/O off the main actor |
 | Foreground looks (`ps` plus `observe`, **never `zmx list`**), trigger scheduling, exit watches, and their writes | `PaneForegroundObserver` actor plus its repository; the platform seams run blocking calls as `@concurrent` | nothing on the main actor (owner, 2026-09-29/30) |
+| Which panes have a live zmx session | `WorkspaceSQLiteDatastoreActor.liveZmxSessionsByPane(workspaceId:)`, an async read of the persisted graph | off-main; trails in-memory edits by at most one flush, which the observer tolerates (rev 22) |
 | `.outputBegan` / `.outputSettled` | `TerminalActivityProjector` actor calls the observer directly, once per activity-window open and once per close or discard | an existing off-main owner; no bus case, no main-actor hop, and one call per burst edge, not per output sample |
 | The quit trigger | `applicationShouldTerminate` (AppKit, main thread) sends one `.appQuitting` value to the observer | the only main-actor touch: a hand-off, no work |
 | Resume verdict | `SessionResumeResolving`, called off-main from IPC initialization | the mount receives the decided cold plan as a value |
