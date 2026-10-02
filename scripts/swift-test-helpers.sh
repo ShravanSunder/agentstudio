@@ -732,6 +732,7 @@ swift_test_suite_lane_inventory() {
 fast|AgentStudioFileViewStartupDiagnosticTests|concurrent
 fast|PaneContextPopoverViewTests|process-global
 fast|PaneContextPopoverActionViewTests|process-global
+fast|PaneContextPopoverControllerNativeTests|process-global
 fast|AgentStudioIPCCursorHookProjectionTests|concurrent
 large|AgentStudioAppIPCConnectionAdmissionTests|concurrent
 large|AgentStudioAppIPCConnectionWaitingTests|concurrent

@@ -142,7 +142,7 @@ struct PaneContextPopoverShapingValueTests {
                         providerPrompts: [
                             .init(reason: .question, observedAt: updatedAt, summary: "Provider question")
                         ],
-                        omittedPromptCount: 5)))
+                        omittedPromptCount: 5)), sourceTitles: [:])
             #expect(
                 shape.agentLine
                     == .init(
@@ -191,7 +191,7 @@ struct PaneContextPopoverShapingValueTests {
                                 .noPullRequest(worktreeId: noPR), .unknown(worktreeId: unknown),
                                 .pullRequest(
                                     worktreeId: worktree, number: 7, checks: scenario.checks, review: scenario.review),
-                            ]))))
+                            ]))), sourceTitles: [:])
             #expect(
                 shape.pullRequests
                     == .init(
@@ -204,7 +204,7 @@ struct PaneContextPopoverShapingValueTests {
                         ]))
         }
         let notApplicable = await PaneContextPopoverShaping.shape(
-            PaneContextPopoverShapingTests.detail(paneId: .generateUUIDv7()))
+            PaneContextPopoverShapingTests.detail(paneId: .generateUUIDv7()), sourceTitles: [:])
         #expect(notApplicable.pullRequests == nil)
     }
 }

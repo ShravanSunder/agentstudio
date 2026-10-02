@@ -14,11 +14,13 @@ struct PaneContextPopoverShape: Sendable, Equatable {
 
 /// Only immutable snapshots cross this boundary. The controller assigns its result.
 enum PaneContextPopoverShaping {
-    @concurrent nonisolated static func shape(_ detail: PaneContextDetail) async -> PaneContextPopoverShape {
+    @concurrent nonisolated static func shape(_ detail: PaneContextDetail, sourceTitles: [PaneId: String]) async
+        -> PaneContextPopoverShape
+    {
         let rows =
-            (detail.messages.map { message($0, label: "Pane \(detail.paneId.uuidString.prefix(8))") }
+            (detail.messages.map { message($0, label: sourceTitles[$0.sourcePaneId] ?? "This pane") }
             + detail.drawerMessages.flatMap { group in
-                group.messages.map { message($0, label: "Drawer \(group.sourcePaneId.uuidString.prefix(8))") }
+                group.messages.map { message($0, label: sourceTitles[group.sourcePaneId] ?? "Drawer pane") }
             }).sorted(by: precedes)
         let partitions = MessagePartitionModel(
             all: groups(rows),
