@@ -270,8 +270,9 @@ my %measured = map { $_->{family} => 1 } @{$report->{families}};
 for my $name ('startup', map { $_->{name} } @{$manifest->{families}}) {
     push @{$report->{families}}, {family => $name, verdict => 'NOT MEASURED'} unless $measured{$name};
 }
+my $failed_family_count = scalar grep { $_->{verdict} ne 'PASS' } @{$report->{families}};
 $report->{verdict} = $completed && $report->{cleanup} eq 'closedOwnedPane'
-    && !grep { $_->{verdict} ne 'PASS' } @{$report->{families}} ? 'PASS' : 'FAIL';
+    && $failed_family_count == 0 ? 'PASS' : 'FAIL';
 $report->{failureStage} = $failure ? $stage : undef; # Controlled labels only, never exception values or IO paths.
 close $samples_file or die "Cannot close benchmark samples\n";
 emit_json("$output_directory/report.json", $report);
