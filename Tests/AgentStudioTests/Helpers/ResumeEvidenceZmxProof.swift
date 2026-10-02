@@ -33,7 +33,7 @@ struct ResumeEvidenceZmxProof: Sendable {
         environment: ResumeEvidenceZmxEnvironment, provider: String,
         historical: Bool = false, unordered: Bool = false, successor: Bool = false,
         exitWatcher: (any ProcessExitWatching)? = nil,
-        sharedData: LifecycleIntakeFileFixture? = nil
+        sharedData: LifecycleIntakeFileFixture? = nil, controlledJobStop: Bool = false
     ) async throws -> Self {
         let data: LifecycleIntakeFileFixture
         if let sharedData {
@@ -81,12 +81,14 @@ struct ResumeEvidenceZmxProof: Sendable {
             }
             let fetchedBinding = try await data.binding()
             let binding = try #require(fetchedBinding)
+            let bindingContext = ZmxForegroundBindingContext(
+                paneID: data.paneID, generationID: binding.bindingGenerationId,
+                database: data.access.queue, ownership: environment)
             let foreground = try await ZmxForegroundFixture.make(
                 harness: harness, backend: backend,
                 provider: provider == "codex" ? "codex" : "claude", successorProgram: successor,
-                bindingContext: .init(
-                    paneID: data.paneID, generationID: binding.bindingGenerationId,
-                    database: data.access.queue, ownership: environment), exitWatcher: exitWatcher)
+                bindingContext: bindingContext, exitWatcher: exitWatcher,
+                controlledJobStop: controlledJobStop)
             return Self(
                 environment: environment, data: data, foreground: foreground, backend: backend, provider: provider,
                 sessionID: record.conversationID, liveIntake: live, projector: projector,

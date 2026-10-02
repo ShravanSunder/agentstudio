@@ -143,7 +143,7 @@ extension E2ESerializedTests.ZmxE2ETests {
             let nextID = UUIDv7.generate().uuidString
             _ = try await proof.report(event: .sessionStart, sessionID: nextID)
             _ = try await proof.report(event: .sessionEnd(reason: "other"))
-            await proof.foreground.observer.note(.relaunched, pane: proof.data.paneID)
+            try await proof.foreground.requestLook(.relaunched)
             let scope = try await proof.foreground.nextLook(sequence: 2)
             try await proof.foreground.facts.expectNext(in: scope, .observation(.admitted))
             _ = try await proof.foreground.facts.expectNext(

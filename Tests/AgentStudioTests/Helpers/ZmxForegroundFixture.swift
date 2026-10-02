@@ -24,6 +24,7 @@ struct ZmxForegroundFixture: Sendable {
     let inputWriter: ForegroundFIFOHandle
     let agentOutputReader: ForegroundFIFOHandle
     let shellReadyPath: String
+    let jobControlPath: String?
     let successorInputPath: String?
     let successorOutputPath: String?
     let successorHandles: ForegroundFIFOGroup
@@ -33,7 +34,8 @@ struct ZmxForegroundFixture: Sendable {
 
     static func make(
         harness: ZmxTestHarness, backend: ZmxBackend, provider: String, successorProgram: Bool = false,
-        bindingContext: ZmxForegroundBindingContext? = nil, exitWatcher: (any ProcessExitWatching)? = nil
+        bindingContext: ZmxForegroundBindingContext? = nil, exitWatcher: (any ProcessExitWatching)? = nil,
+        controlledJobStop: Bool = false
     )
         async throws -> Self
     {
@@ -46,6 +48,7 @@ struct ZmxForegroundFixture: Sendable {
         let inputPath = root.appending(path: "agent-input-\(sessionId.rawValue)").path
         let outputPath = root.appending(path: "agent-output-\(sessionId.rawValue)").path
         let shellPath = root.appending(path: "shell-ready-\(sessionId.rawValue)").path
+        let controlPath = controlledJobStop ? root.appending(path: "job-control-\(sessionId.rawValue)").path : nil
         let successorInput = successorProgram ? root.appending(path: "other-input-\(sessionId.rawValue)").path : nil
         let successorOutput = successorProgram ? root.appending(path: "other-output-\(sessionId.rawValue)").path : nil
         // The probe reads argv[0], so the invocation name supplies the agent
@@ -56,11 +59,13 @@ struct ZmxForegroundFixture: Sendable {
         for path in [inputPath, outputPath, shellPath] {
             guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
-        for path in [successorInput, successorOutput].compactMap({ $0 }) {
+        for path in [successorInput, successorOutput, controlPath].compactMap({ $0 }) {
             guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
         let successor: String
-        if let successorInput, let successorOutput {
+        if let controlPath {
+            successor = stoppedAgentShellProtocol(replyPath: shellPath, commandPath: controlPath)
+        } else if let successorInput, let successorOutput {
             successor = "exec /bin/cat <\(quoteForegroundPath(successorInput)) >\(quoteForegroundPath(successorOutput))"
         } else {
             successor = "printf shell-ready >\(quoteForegroundPath(shellPath)); exec /bin/sh -i"
@@ -125,7 +130,8 @@ struct ZmxForegroundFixture: Sendable {
                 recordingWatcher: recordingWatcher,
                 facts: facts, inputWriter: writer,
                 agentOutputReader: outputReader,
-                shellReadyPath: shellPath, successorInputPath: successorInput, successorOutputPath: successorOutput,
+                shellReadyPath: shellPath, jobControlPath: controlPath,
+                successorInputPath: successorInput, successorOutputPath: successorOutput,
                 successorHandles: ForegroundFIFOGroup(), identity: identity, harness: harness,
                 ownership: bindingContext?.ownership)
         } catch {
@@ -140,12 +146,7 @@ struct ZmxForegroundFixture: Sendable {
     }
 
     func initialLook() async throws -> UUID {
-        await observer.note(.bindingChanged, pane: paneId)
-        let pane = paneId
-        let demand = try await facts.expectNextOperation(
-            matching: { $0.paneId == pane }, opening: { $0 == .scheduled }, "real foreground demand")
-        try await facts.expectNext(in: demand, .scheduled)
-        try await facts.expectNext(in: demand, .closed(.scheduled))
+        try await requestLook(.bindingChanged)
         let look = try await nextLook(sequence: 1)
         try await facts.expectNext(in: look, .observation(.admitted))
         let registered = try await facts.expectNext(
@@ -153,6 +154,18 @@ struct ZmxForegroundFixture: Sendable {
         try await facts.expectNext(in: look, .closed(.looked))
         guard case .watchRegistered(let watchId) = registered else { throw POSIXError(.EPROTO) }
         return watchId
+    }
+
+    /// A trigger closes its own demand scope before the snapshot scope opens.
+    func requestLook(_ trigger: ForegroundLookTrigger) async throws {
+        await observer.note(trigger, pane: paneId)
+        let pane = paneId
+        let watches = recordingWatcher
+        let demand = try await facts.expectNextOperation(
+            matching: { $0.paneId == pane && !watches.isWatchOperation($0.operationId) },
+            opening: { $0 == .scheduled }, "real foreground demand")
+        try await facts.expectNext(in: demand, .scheduled)
+        try await facts.expectNext(in: demand, .closed(.scheduled))
     }
 
     func nextLook(sequence: UInt64) async throws -> ForegroundObserverFactScope {
@@ -176,33 +189,42 @@ struct ZmxForegroundFixture: Sendable {
 
     /// SIGSTOP is delivered only to the positively identified child owned by this session.
     func suspendAgentIntoShell(background: Bool) async throws {
+        let controlPath = try #require(jobControlPath)
         let snapshots = try await probe.probeForeground(of: [sessionId])
         let agent = try #require(snapshots[sessionId]?.foregroundProcess)
         try #require(DarwinColdStartObserverSyscalls().leaderState(of: agent) == .sameIncarnationAlive)
         ownership?.retainJobControlChild(agent)
         try #require(Darwin.kill(agent.pid, SIGSTOP) == 0)
-        let reader = try await openForegroundFIFO(path: shellReadyPath, flags: O_RDONLY)
-        defer { close(reader) }
-        let bytes = try await readForegroundBytes(descriptor: reader, byteCount: Data("shell-ready".utf8).count)
-        #expect(bytes == Data("shell-ready".utf8))
-        let status = try await withoutBlockingCooperativePool {
-            var information = proc_bsdinfo()
-            let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-            guard proc_pidinfo(agent.pid, PROC_PIDTBSDINFO, 0, &information, size) == size else {
-                throw POSIXError(.ESRCH)
-            }
-            return information.pbi_status
-        }
-        #expect(status == UInt32(SSTOP))
+        // Published only after the owning shell's wait observes WIFSTOPPED.
+        // It then blocks in a builtin read, retaining the stopped child.
+        let stopped = try await expectJobControlReply("agent-stopped")
+        #expect(stopped == "agent-stopped")
         if background {
-            try #require(DarwinColdStartObserverSyscalls().leaderState(of: agent) == .sameIncarnationAlive)
-            try #require(Darwin.kill(agent.pid, SIGCONT) == 0)
+            let command = ForegroundFIFOHandle(try await openForegroundFIFO(path: controlPath, flags: O_WRONLY))
+            // Keep the writer owned until teardown: an EOF in the shell's final
+            // builtin read would exit the parent and hang up the background job.
+            successorHandles.add(command)
+            try await writeForegroundFIFO(descriptor: command.descriptor(), bytes: Data("background\n".utf8))
+            let resumed = try await expectJobControlReply("agent-background")
+            #expect(resumed == "agent-background")
             let marker = Data("background-ready".utf8)
             try await writeForegroundFIFO(descriptor: inputWriter.descriptor(), bytes: marker)
             let echoed = try await readForegroundBytes(
                 descriptor: agentOutputReader.descriptor(), byteCount: marker.count)
             #expect(echoed == marker)
         }
+    }
+
+    private func expectJobControlReply(_ marker: String) async throws -> String {
+        let reader = try await openForegroundFIFO(path: shellReadyPath, flags: O_RDONLY)
+        defer { close(reader) }
+        let expected = Data(marker.utf8)
+        let observed = try await readForegroundBytes(descriptor: reader, byteCount: expected.count)
+        guard let reply = String(data: observed, encoding: .utf8) else { throw POSIXError(.EILSEQ) }
+        guard reply == marker else {
+            throw ForegroundFIFOTransferFailure.unexpectedJobControlReply(expected: marker, actual: reply)
+        }
+        return reply
     }
 
     func letAnotherProgramTakeForeground() async throws {
@@ -305,6 +327,25 @@ private func quoteForegroundPath(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+/// /bin/sh is Bash 3.2: wait uses WUNTRACED and returns 128 + WSTOPSIG.
+/// Keep this parent shell: exec calls end_job_control and terminates stopped jobs.
+private func stoppedAgentShellProtocol(replyPath: String, commandPath: String) -> String {
+    """
+    wait %+; stopped_status=$?
+    if [ "$stopped_status" -ne \(128 + SIGSTOP) ]; then
+        printf 'job-stop-failed:%s' "$stopped_status" >\(quoteForegroundPath(replyPath)); exit 1
+    fi
+    printf agent-stopped >\(quoteForegroundPath(replyPath))
+    IFS= read -r job_command <\(quoteForegroundPath(commandPath)) || exit 1
+    if [ "$job_command" != background ]; then exit 1; fi
+    if ! bg %+; then
+        printf job-background-failed >\(quoteForegroundPath(replyPath)); exit 1
+    fi
+    printf agent-background >\(quoteForegroundPath(replyPath))
+    IFS= read -r job_retirement <\(quoteForegroundPath(commandPath))
+    """
+}
+
 private func openForegroundFIFO(path: String, flags: Int32) async throws -> Int32 {
     try await withoutBlockingCooperativePool {
         let descriptor = open(path, flags)
@@ -324,6 +365,7 @@ private struct ForegroundFixtureSetupFailure: Error, CustomStringConvertible {
 private enum ForegroundFIFOTransferFailure: Error {
     case zeroProgressWrite(bytesWritten: Int, expectedBytes: Int)
     case prematureEOF(bytesRead: Int, expectedBytes: Int)
+    case unexpectedJobControlReply(expected: String, actual: String)
 }
 
 private func writeForegroundFIFO(descriptor: Int32, bytes: Data) async throws {

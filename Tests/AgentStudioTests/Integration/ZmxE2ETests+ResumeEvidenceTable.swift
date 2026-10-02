@@ -17,7 +17,8 @@ extension E2ESerializedTests.ZmxE2ETests {
                 environment: environment, provider: provider,
                 historical: row == .startedWhileClosed, unordered: row == .unavailableStore,
                 successor: row == .exitIntoAnotherProgram,
-                exitWatcher: row == .watchRefused ? ResumeEvidenceFirstRefusalWatch() : nil)
+                exitWatcher: row == .watchRefused ? ResumeEvidenceFirstRefusalWatch() : nil,
+                controlledJobStop: row.requiresControlledJobStop)
             do {
                 if row != .startedWhileClosed && row != .diedBeforeFirstLook {
                     let watchID = try await proof.foreground.initialLook()
@@ -80,7 +81,7 @@ extension E2ESerializedTests.ZmxE2ETests {
                     }
                 case .stoppedBeforeLook, .backgroundBeforeLook:
                     try await proof.foreground.suspendAgentIntoShell(background: row == .backgroundBeforeLook)
-                    await proof.foreground.observer.note(.relaunched, pane: proof.data.paneID)
+                    try await proof.foreground.requestLook(.relaunched)
                     let look = try await proof.foreground.nextLook(sequence: 2)
                     try await proof.foreground.facts.expectNext(in: look, .observation(.admitted))
                     try await proof.foreground.facts.expectNext(in: look, .closed(.looked))
@@ -186,6 +187,12 @@ enum ResumeEvidenceTableRow: String, CaseIterable, Sendable {
     case lostEndAfterFreshLook, lostEndBeforeFreshLook, diedBeforeFirstLook
     case sameBootDeath, hangupReportedEnd, stoppedBeforeLook, backgroundBeforeLook
     case unavailableStore, targetGone, missingEndReason, unrecognizedEndReason
+    var requiresControlledJobStop: Bool {
+        switch self {
+        case .stoppedAfterLook, .stoppedBeforeLook, .backgroundAfterLook, .backgroundBeforeLook: true
+        default: false
+        }
+    }
     func expected(for proof: ResumeEvidenceZmxProof) throws -> ResumeEvidence {
         switch self {
         case .reportedExit: return .knownExited(.personExit)
