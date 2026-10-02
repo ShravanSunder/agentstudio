@@ -97,10 +97,11 @@ package struct IPCPaneSessionSummary: Codable, Equatable, Sendable, IPCSchemaPro
     package let bindingGeneration: UUID
     package let status: IPCPaneSessionStatus
     package let providerPrompts: [IPCPaneProviderPromptSummary]
+    package let omittedPromptCount: Int
 
     package init(
         id: UUID, provider: String, conversationId: String, bindingGeneration: UUID, status: IPCPaneSessionStatus,
-        providerPrompts: [IPCPaneProviderPromptSummary]
+        providerPrompts: [IPCPaneProviderPromptSummary], omittedPromptCount: Int
     ) {
         self.id = id
         self.provider = provider
@@ -108,6 +109,46 @@ package struct IPCPaneSessionSummary: Codable, Equatable, Sendable, IPCSchemaPro
         self.bindingGeneration = bindingGeneration
         self.status = status
         self.providerPrompts = providerPrompts
+        self.omittedPromptCount = omittedPromptCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case provider
+        case conversationId
+        case bindingGeneration
+        case status
+        case providerPrompts
+        case omittedPromptCount
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        provider = try container.decode(String.self, forKey: .provider)
+        conversationId = try container.decode(String.self, forKey: .conversationId)
+        bindingGeneration = try container.decode(UUID.self, forKey: .bindingGeneration)
+        status = try container.decode(IPCPaneSessionStatus.self, forKey: .status)
+        providerPrompts = try container.decode([IPCPaneProviderPromptSummary].self, forKey: .providerPrompts)
+        omittedPromptCount = try IPCPaneNumericCoding.decodeSigned(from: container, forKey: .omittedPromptCount)
+        guard omittedPromptCount >= 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .omittedPromptCount, in: container,
+                debugDescription: "Expected a non-negative omitted prompt count")
+        }
+    }
+
+    package func encode(to encoder: any Encoder) throws {
+        try IPCPaneNumericCoding.requireSafe(omittedPromptCount)
+        guard omittedPromptCount >= 0 else { throw IPCPaneNumericEncodingError.aboveSafeIntegerBound }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(conversationId, forKey: .conversationId)
+        try container.encode(bindingGeneration, forKey: .bindingGeneration)
+        try container.encode(status, forKey: .status)
+        try container.encode(providerPrompts, forKey: .providerPrompts)
+        try container.encode(omittedPromptCount, forKey: .omittedPromptCount)
     }
 
     package static func ipcSchema() throws -> IPCJSONSchema {
@@ -120,6 +161,9 @@ package struct IPCPaneSessionSummary: Codable, Equatable, Sendable, IPCSchemaPro
             .init(
                 name: "providerPrompts", description: "providerPrompts",
                 schema: .array(items: try IPCPaneProviderPromptSummary.ipcSchema())),
+            .init(
+                name: "omittedPromptCount", description: "Provider prompts omitted from this bounded projection",
+                schema: IPCSchemaScalars.unsignedInteger),
         ])
     }
 }

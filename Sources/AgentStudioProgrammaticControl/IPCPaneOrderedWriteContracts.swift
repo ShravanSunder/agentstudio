@@ -9,6 +9,25 @@ package struct IPCPaneWriteNumber: Codable, Equatable, Sendable, IPCSchemaProvid
         self.counter = counter
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case epoch
+        case counter
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        epoch = try IPCPaneNumericCoding.decodeUnsigned(from: container, forKey: .epoch)
+        counter = try IPCPaneNumericCoding.decodeUnsigned(from: container, forKey: .counter)
+    }
+
+    package func encode(to encoder: any Encoder) throws {
+        try IPCPaneNumericCoding.requireSafe(epoch)
+        try IPCPaneNumericCoding.requireSafe(counter)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(epoch, forKey: .epoch)
+        try container.encode(counter, forKey: .counter)
+    }
+
     package static func ipcSchema() throws -> IPCJSONSchema {
         .object(fields: [
             .init(name: "epoch", description: "epoch", schema: IPCSchemaScalars.unsignedInteger),
@@ -65,7 +84,7 @@ package enum IPCPaneEpochClaimResult: Codable, Equatable, Sendable, IPCSchemaPro
     package init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(Kind.self, forKey: .kind) {
-        case .claimed: self = .claimed(epoch: try container.decode(UInt64.self, forKey: .epoch))
+        case .claimed: self = .claimed(epoch: try IPCPaneNumericCoding.decodeUnsigned(from: container, forKey: .epoch))
         }
     }
 
@@ -73,6 +92,7 @@ package enum IPCPaneEpochClaimResult: Codable, Equatable, Sendable, IPCSchemaPro
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .claimed(let epoch):
+            try IPCPaneNumericCoding.requireSafe(epoch)
             try container.encode(Kind.claimed, forKey: .kind)
             try container.encode(epoch, forKey: .epoch)
         }

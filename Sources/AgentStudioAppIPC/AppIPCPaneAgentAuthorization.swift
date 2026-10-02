@@ -59,6 +59,12 @@ struct AppIPCPaneAgentAuthorization: Sendable {
         case .anyTarget:
             return
         case .ownPane:
+            if case .credentialPaneOnly = request.agentArgumentRule {
+                guard let boundId = UUID(uuidString: boundPaneId), request.resolvedPaneIds == [boundId] else {
+                    throw AuthorizationError(reason: .unauthorized)
+                }
+                return
+            }
             guard let boundId = UUID(uuidString: boundPaneId),
                 let scope = await ownPaneScopePort.ownPaneScope(boundPaneId: boundId),
                 !request.resolvedPaneIds.isEmpty,

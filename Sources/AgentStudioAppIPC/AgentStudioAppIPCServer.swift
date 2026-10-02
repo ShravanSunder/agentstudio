@@ -367,12 +367,19 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         let tools = AppIPCTargetResolutionTools { [self] rawHandle in
             try await canonicalHandle(fromRawHandle: rawHandle, principal: context.principal)
         }
-        return try await registration.invoke(
-            parameters: request.params ?? .object([:]), connectionContext: context, targetResolutionTools: tools,
-            authorize: { [self] principal, authorization in
-                try await authorizationService.authorize(principal: principal, request: authorization)
-            }
-        )
+        do {
+            return try await registration.invoke(
+                parameters: request.params ?? .object([:]), connectionContext: context, targetResolutionTools: tools,
+                authorize: { [self] principal, authorization in
+                    try await authorizationService.authorize(principal: principal, request: authorization)
+                }
+            )
+        } catch let error as IPCSchemaValidationError {
+            guard registration.descriptor.metadata.executionOwner == .paneContextService else { throw error }
+            // Only the new pane-context methods use their typed field refusal;
+            // every existing registration keeps its established error bytes.
+            throw AppIPCPaneContextError.schemaRefusal(error)
+        }
     }
 
     private func schedulePersistence(of credentials: [AgentStudioIPCIssuedPaneCredential]) {

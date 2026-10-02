@@ -24,6 +24,12 @@ package struct AppIPCPaneContextError: Error, Equatable, Sendable {
         self.field = field
         self.staleness = staleness
     }
+
+    static func schemaRefusal(_ error: IPCSchemaValidationError) -> Self {
+        let components = error.fieldPath.split(separator: ".")
+        let field = error.fieldPath.contains(".shape") ? "form" : components.dropFirst().joined(separator: ".")
+        return Self(reason: .invalidField, field: field.isEmpty ? nil : field)
+    }
 }
 
 /// Wire-only boundary. App composition maps these values to PaneContextService

@@ -252,6 +252,52 @@ struct IPCPaneContextWireContractTests {
             pullRequests: .notApplicable)
     }
 
+    @Test("A bounded session projection explicitly reports omitted provider prompts")
+    func omittedProviderPromptsRoundTrip() throws {
+        let identifier = UUIDv7.generate()
+        let summary = IPCPaneSessionSummary(
+            id: identifier, provider: "claude-code", conversationId: "session", bindingGeneration: identifier,
+            status: .needsYou(reason: .approval),
+            providerPrompts: [
+                IPCPaneProviderPromptSummary(
+                    reason: .approval, observedAt: Date(timeIntervalSinceReferenceDate: 10), summary: "Approve")
+            ], omittedPromptCount: 3)
+        try expectTaggedBytes(
+            summary,
+            expectedJSON:
+                "{\"bindingGeneration\":\"\(identifier.uuidString)\",\"conversationId\":\"session\",\"id\":\"\(identifier.uuidString)\",\"omittedPromptCount\":3,\"provider\":\"claude-code\",\"providerPrompts\":[{\"observedAt\":10,\"reason\":\"approval\",\"summary\":\"Approve\"}],\"status\":{\"kind\":\"needsYou\",\"reason\":\"approval\"}}"
+        )
+    }
+
+    @Test("Omitted provider prompt counts are required non-negative safe integers")
+    func omittedProviderPromptCountValidation() throws {
+        let identifier = UUIDv7.generate()
+        let base =
+            "{\"id\":\"\(identifier.uuidString)\",\"provider\":\"claude-code\",\"conversationId\":\"session\",\"bindingGeneration\":\"\(identifier.uuidString)\",\"status\":{\"kind\":\"unknown\"},\"providerPrompts\":[]"
+        for count in [0, 1, Int(IPCSchemaScalars.maximumExactInteger)] {
+            let input = Data("\(base),\"omittedPromptCount\":\(count)}".utf8)
+            let summary = try IPCPaneSessionSummary.ipcSchema().decode(IPCPaneSessionSummary.self, from: input)
+            #expect(summary.omittedPromptCount == count)
+            try expectRoundTrip(summary)
+        }
+        for suffix in [
+            "}", ",\"omittedPromptCount\":-1}", ",\"omittedPromptCount\":1.5}",
+            ",\"omittedPromptCount\":9007199254740992}",
+        ] {
+            let input = Data("\(base)\(suffix)".utf8)
+            #expect(throws: (any Error).self) { try JSONDecoder().decode(IPCPaneSessionSummary.self, from: input) }
+            #expect(throws: (any Error).self) {
+                try IPCPaneSessionSummary.ipcSchema().decode(IPCPaneSessionSummary.self, from: input)
+            }
+        }
+        for count in [-1, Int(IPCSchemaScalars.maximumExactInteger) + 1] {
+            expectEncodingRefusal(
+                IPCPaneSessionSummary(
+                    id: identifier, provider: "claude-code", conversationId: "session", bindingGeneration: identifier,
+                    status: .unknown, providerPrompts: [], omittedPromptCount: count))
+        }
+    }
+
     private func expectEncodingRefusal<Value: Encodable>(_ value: Value) {
         #expect(throws: IPCPaneNumericEncodingError.aboveSafeIntegerBound) {
             try JSONEncoder().encode(value)

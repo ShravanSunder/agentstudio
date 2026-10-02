@@ -14,7 +14,7 @@ struct AppIPCTypedRegistryTests {
         let registry = try makeTestAppIPCMethodRegistry(
             registrations: registrations, recognizedCommands: [], channel: .debug)
         let names = registry.capabilities.methods.map(\.name)
-        #expect(names.count == 48)
+        #expect(names.count == 56)
         #expect(names == names.sorted())
         #expect(Set(names).count == names.count)
         #expect(names.filter { $0 == "system.capabilities" }.count == 1)
@@ -36,10 +36,18 @@ struct AppIPCTypedRegistryTests {
         let fixture = BuiltInMethodRegistrationsFixture()
         let registry = try makeTestAppIPCMethodRegistry(
             registrations: fixture.registrations(), recognizedCommands: [], channel: channel)
-        // 12 established all-channel methods plus the 13 methods pane agents
-        // may run in A1, which reach agents on every channel.
-        #expect(registry.capabilities.methods.count == 25)
+        // 25 established methods plus the eight credential-pane context methods
+        // reach pane agents on both production channels.
+        #expect(registry.capabilities.methods.count == 33)
         #expect(registry.capabilities.methods.allSatisfy { $0.exposure == .allChannels })
+        let paneContextMethods = registry.capabilities.methods.filter { $0.executionOwner == .paneContextService }
+        #expect(
+            Set(paneContextMethods.map(\.name))
+                == Set([
+                    "pane.message.send", "pane.message.ask", "pane.message.withdraw", "pane.message.changes",
+                    "pane.line.set", "pane.title.set", "pane.writer.claimEpoch", "pane.context.get",
+                ]))
+        #expect(paneContextMethods.allSatisfy { $0.agentEligibility == .ownPane })
         #expect(registry.registration(named: "session.report") != nil)
         #expect(registry.registration(named: "session.query") != nil)
         #expect(registry.registration(named: "terminal.send") != nil)

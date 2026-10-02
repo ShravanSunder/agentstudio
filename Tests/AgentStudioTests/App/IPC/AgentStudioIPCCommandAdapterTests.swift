@@ -309,9 +309,9 @@ struct AgentStudioIPCCommandAdapterTests {
             illustrativeDescriptor: ping
         )
 
-        #expect(builtIns.erasedDescriptors.count == 47)
+        #expect(builtIns.erasedDescriptors.count == 55)
         #expect(commandCatalog.commands.count == 24)
-        #expect(capabilities.result.methods.count == 50)
+        #expect(capabilities.result.methods.count == 58)
 
         let encodedCatalog = try capabilities.descriptor.encodeResult(capabilities.result)
         let decodedCatalog = try IPCMethodCatalogDecoder.decode(encodedCatalog)

@@ -13,6 +13,30 @@ package struct IPCPaneMessageChangesParams: Codable, Equatable, Sendable, IPCSch
         self.correlationId = correlationId
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case handle
+        case writer
+        case after
+        case correlationId
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        handle = try container.decode(String.self, forKey: .handle)
+        writer = try container.decodeIfPresent(IPCPaneWriterClaim.self, forKey: .writer)
+        after = try IPCPaneNumericCoding.decodeUnsigned(from: container, forKey: .after)
+        correlationId = try container.decode(UUID.self, forKey: .correlationId)
+    }
+
+    package func encode(to encoder: any Encoder) throws {
+        try IPCPaneNumericCoding.requireSafe(after)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(handle, forKey: .handle)
+        try container.encodeIfPresent(writer, forKey: .writer)
+        try container.encode(after, forKey: .after)
+        try container.encode(correlationId, forKey: .correlationId)
+    }
+
     package static func ipcSchema() throws -> IPCJSONSchema {
         .object(fields: [
             .init(name: "handle", description: "handle", schema: .string()),
@@ -32,6 +56,27 @@ package struct IPCPaneMessageChangesResult: Codable, Equatable, Sendable, IPCSch
         self.entries = entries
         self.nextPosition = nextPosition
         self.more = more
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case entries
+        case nextPosition
+        case more
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        entries = try container.decode([IPCPaneMessageChangeEntry].self, forKey: .entries)
+        nextPosition = try IPCPaneNumericCoding.decodeUnsigned(from: container, forKey: .nextPosition)
+        more = try container.decode(Bool.self, forKey: .more)
+    }
+
+    package func encode(to encoder: any Encoder) throws {
+        try IPCPaneNumericCoding.requireSafe(nextPosition)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(entries, forKey: .entries)
+        try container.encode(nextPosition, forKey: .nextPosition)
+        try container.encode(more, forKey: .more)
     }
 
     package static func ipcSchema() throws -> IPCJSONSchema {
@@ -56,6 +101,30 @@ package struct IPCPaneMessageChangeEntry: Codable, Equatable, Sendable, IPCSchem
         self.position = position
         self.messageId = messageId
         self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case position
+        case messageId
+        case kind
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        position = try IPCPaneNumericCoding.decodeUnsigned(from: container, forKey: .position)
+        messageId = try container.decode(UUID.self, forKey: .messageId)
+        kind = try container.decode(IPCPaneMessageChangeKind.self, forKey: .kind)
+    }
+
+    package func encode(to encoder: any Encoder) throws {
+        try IPCPaneNumericCoding.requireSafe(position)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(position, forKey: .position)
+        try container.encode(messageId, forKey: .messageId)
+        try container.encode(kind, forKey: .kind)
     }
 
     package static func ipcSchema() throws -> IPCJSONSchema {
