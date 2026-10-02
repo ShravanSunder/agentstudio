@@ -55,8 +55,11 @@ run_architecture_lint() {
 # each path and anchor it references exists. The lint tool's own fixture
 # documents are deliberately broken and are linted by its tests instead.
 agent_documents() {
+  local architecture_doc_fixture_root
+  architecture_doc_fixture_root="$(cat "${repository_root}/scripts/architecture-doc-fixture-root.txt")"
+  [[ -n "$architecture_doc_fixture_root" ]] || { echo "architecture doc fixture root is empty" >&2; return 1; }
   git ls-files -- 'AGENTS.md' '*/AGENTS.md' \
-    ':(exclude)Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/**'
+    ":(exclude)${architecture_doc_fixture_root}/**"
 }
 
 run_release_script_checks() {
