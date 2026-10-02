@@ -103,6 +103,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appIPCServerChannel: AgentStudioIPCChannel = AppDelegate.compiledAppIPCChannel()
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
     var appIPCSessionsIngestion: SessionsIngestion?
+    // S3c RED: startup keeps its existing assembly until the production cutover.
+    var appIPCSessionsPaneContextComposition: SessionsPaneContextComposition? { nil }
     var paneReportSpoolDrainTask: Task<Void, Never>?
     /// Exact provider profiles are composition input. Only the releases listed
     /// here grant provider-reported authority; every other provider, version or
