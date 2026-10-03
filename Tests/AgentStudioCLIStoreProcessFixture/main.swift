@@ -12,9 +12,15 @@ struct CLIStoreProcessFixture {
         else {
             Darwin.exit(64)
         }
-        let store = try CLIStore.openWriter(
+        let opened = CLIStore.openWriter(
             url: URL(fileURLWithPath: CommandLine.arguments[1]), channel: .debug
-        ).get()
+        )
+        if case .failure(.busy(let extendedResultCode, let stage)) = opened {
+            let codeText = extendedResultCode.map { String($0) } ?? "none"
+            let diagnostic = "CLI store busy: stage=\(stage.rawValue); extendedResultCode=\(codeText)\n"
+            FileHandle.standardError.write(Data(diagnostic.utf8))
+        }
+        let store = try opened.get()
         // A busy writer may fail open. Report every successful id and every
         // busy disposition; the parent proves precisely the committed effects.
         for _ in 0..<16 {

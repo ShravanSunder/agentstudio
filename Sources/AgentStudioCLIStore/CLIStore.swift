@@ -2,6 +2,7 @@ import AgentStudioPrimitives
 import Darwin
 import Foundation
 import GRDB
+import SQLite3
 
 package enum CLIStoreChannel: String, Sendable {
     case stable
@@ -15,8 +16,20 @@ package struct CLIStoreIdentity: Equatable, Sendable {
 }
 
 package enum CLIStoreFailure: Error, Equatable, Sendable {
+    package enum Stage: String, Sendable {
+        case connectionSetup
+        case admission
+        case journalMode
+        case migration
+        case identity
+        case readOutbox
+        case append
+        case purge
+    }
+
     case unavailable
-    case busy
+    /// A missing SQLite code means the call budget expired before SQLite access.
+    case busy(extendedResultCode: Int32?, stage: Stage)
     case superseded
     case channelMismatch
     case invalidIdentity
@@ -81,19 +94,49 @@ package final class CLIStore: Sendable {
         url: URL,
         channel: CLIStoreChannel,
         migrationLockWaitBudget: @escaping @Sendable () -> Duration? = { nil },
+        prepareConnection: (@Sendable (Database) throws -> Void)? = nil,
         logDecodeIssue: @escaping @Sendable (CLIStoreDecodeIssue) -> Void = { _ in }
     ) -> Result<CLIStore, CLIStoreFailure> {
         do {
             guard url.isFileURL else { throw CLIStoreFailure.unavailable }
-            try prepareWriterFile(at: url)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try publishNewStore(
+                    at: url, channel: channel, migrationLockWaitBudget: migrationLockWaitBudget,
+                    prepareConnection: prepareConnection)
+            }
+            return openDatabaseWriter(
+                url: url, channel: channel, migrationLockWaitBudget: migrationLockWaitBudget,
+                prepareConnection: prepareConnection, logDecodeIssue: logDecodeIssue)
+        } catch {
+            return .failure(classifyFailure(error, stage: .connectionSetup))
+        }
+    }
+
+    private static func openDatabaseWriter(
+        url: URL,
+        channel: CLIStoreChannel,
+        migrationLockWaitBudget: @Sendable () -> Duration?,
+        prepareConnection: (@Sendable (Database) throws -> Void)?,
+        logDecodeIssue: @escaping @Sendable (CLIStoreDecodeIssue) -> Void
+    ) -> Result<CLIStore, CLIStoreFailure> {
+        var stage = CLIStoreFailure.Stage.connectionSetup
+        do {
+            guard url.isFileURL else { throw CLIStoreFailure.unavailable }
             // Open without a journal mutation until the version and channel
             // have been admitted. A foreign store must not be reshaped.
             // GRDB installs this handler before its connection format check.
             var configuration = makeConfiguration(readonly: false)
             configuration.busyMode = .timeout(try firstOpenBusyTimeout(lockWaitBudget: migrationLockWaitBudget()))
+            if let prepareConnection {
+                configuration.prepareDatabase(prepareConnection)
+            }
             let databaseQueue = try DatabaseQueue(
                 path: url.path, configuration: configuration)
             let migrator = CLIStoreMigrator.makeMigrator(channel: channel)
+            stage = .admission
             let needsMigration = try databaseQueue.read { database in
                 let applied = try migrator.appliedIdentifiers(database)
                 // Same unregistered-id rule as hasBeenSuperseded, using one
@@ -106,6 +149,7 @@ package final class CLIStore: Sendable {
                 }
                 return applied != CLIStoreMigrator.knownMigrations
             }
+            stage = .journalMode
             try databaseQueue.writeWithoutTransaction { database in
                 if try String.fetchOne(database, sql: "PRAGMA journal_mode") != "wal" {
                     guard try String.fetchOne(database, sql: "PRAGMA journal_mode = WAL") == "wal" else {
@@ -115,10 +159,12 @@ package final class CLIStore: Sendable {
                 try database.execute(sql: "PRAGMA synchronous = FULL")
             }
             if needsMigration {
+                stage = .migration
                 try databaseQueue.writeWithoutTransaction { database in
                     try migrateWriterSchema(database, channel: channel)
                 }
             }
+            stage = .identity
             let identity = try databaseQueue.read { database in
                 guard try migrator.appliedIdentifiers(database) == CLIStoreMigrator.knownMigrations else {
                     throw CLIStoreFailure.superseded
@@ -134,7 +180,7 @@ package final class CLIStore: Sendable {
                 CLIStore(
                     databaseQueue: databaseQueue, identity: identity, logDecodeIssue: logDecodeIssue))
         } catch {
-            return .failure(classifyFailure(error))
+            return .failure(classifyFailure(error, stage: stage))
         }
     }
 
@@ -143,23 +189,26 @@ package final class CLIStore: Sendable {
         expectedChannel: CLIStoreChannel,
         logDecodeIssue: @escaping @Sendable (CLIStoreDecodeIssue) -> Void = { _ in }
     ) -> Result<CLIStore, CLIStoreFailure> {
+        var stage = CLIStoreFailure.Stage.connectionSetup
         do {
             guard url.isFileURL else { throw CLIStoreFailure.unavailable }
             // This branch creates no file or directory and never migrates.
             let databaseQueue = try DatabaseQueue(
                 path: url.path, configuration: makeConfiguration(readonly: true))
+            stage = .admission
             let identity = try databaseQueue.read { database in
                 let applied = try CLIStoreMigrator.makeMigrator(channel: expectedChannel).appliedIdentifiers(database)
                 guard applied.isSubset(of: CLIStoreMigrator.knownMigrations) else {
                     throw CLIStoreFailure.superseded
                 }
+                stage = .identity
                 return try readIdentity(database, expectedChannel: expectedChannel)
             }
             return .success(
                 CLIStore(
                     databaseQueue: databaseQueue, identity: identity, logDecodeIssue: logDecodeIssue))
         } catch {
-            return .failure(classifyFailure(error))
+            return .failure(classifyFailure(error, stage: stage))
         }
     }
 
@@ -207,7 +256,7 @@ package final class CLIStore: Sendable {
             }
             return .success(entry)
         } catch {
-            return .failure(Self.classifyFailure(error))
+            return .failure(Self.classifyFailure(error, stage: .append))
         }
     }
 
@@ -240,7 +289,7 @@ package final class CLIStore: Sendable {
             }
             return .success(outcome.0)
         } catch {
-            return .failure(Self.classifyFailure(error))
+            return .failure(Self.classifyFailure(error, stage: .readOutbox))
         }
     }
 
@@ -266,13 +315,15 @@ package final class CLIStore: Sendable {
                 return database.changesCount
             }
             return .success(removed)
-        } catch { return .failure(Self.classifyFailure(error)) }
+        } catch { return .failure(Self.classifyFailure(error, stage: .purge)) }
     }
 
     private static func firstOpenBusyTimeout(lockWaitBudget: Duration?) throws -> TimeInterval {
         let cap = CLIStorePolicy.firstOpenMigrationLockWaitCap
         let lockWait = min(cap, lockWaitBudget ?? cap)
-        guard lockWait > .zero else { throw CLIStoreFailure.busy }
+        guard lockWait > .zero else {
+            throw CLIStoreFailure.busy(extendedResultCode: nil, stage: .connectionSetup)
+        }
         // Round down so SQLite never receives a wait larger than the remaining budget.
         let milliseconds = (lockWait / .milliseconds(1)).rounded(.down)
         return milliseconds / CLIStorePolicy.millisecondsPerSecond
@@ -311,24 +362,81 @@ package final class CLIStore: Sendable {
         return configuration
     }
 
-    private static func prepareWriterFile(at url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700])
-        // O_EXCL avoids truncating a file another short-lived CLI just created.
-        let descriptor = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
-        if descriptor >= 0 {
-            Darwin.close(descriptor)
-        } else if errno != EEXIST {
-            throw CLIStoreFailure.unavailable
+    private static func publishNewStore(
+        at url: URL,
+        channel: CLIStoreChannel,
+        migrationLockWaitBudget: @Sendable () -> Duration?,
+        prepareConnection: (@Sendable (Database) throws -> Void)?
+    ) throws {
+        let temporaryURL = url.deletingLastPathComponent().appending(
+            path: "\(url.lastPathComponent).creating-\(UUIDv7.generate().uuidString)")
+        let descriptor = Darwin.open(temporaryURL.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard descriptor >= 0 else { throw CLIStoreFailure.unavailable }
+        Darwin.close(descriptor)
+        var cleanupAllowed = true
+        // A crashed creator's files are ignored. Only this attempt's private
+        // names may be removed, after its connection closes and before return.
+        defer {
+            let ownedPaths = [
+                temporaryURL.path, temporaryURL.path + "-journal",
+            ]
+            let hasSidecars =
+                FileManager.default.fileExists(atPath: temporaryURL.path + "-wal")
+                || FileManager.default.fileExists(atPath: temporaryURL.path + "-shm")
+            if cleanupAllowed && !hasSidecars {
+                for path in ownedPaths {
+                    try? FileManager.default.removeItem(atPath: path)
+                }
+            }
+        }
+        let writer = try openDatabaseWriter(
+            url: temporaryURL, channel: channel, migrationLockWaitBudget: migrationLockWaitBudget,
+            prepareConnection: prepareConnection, logDecodeIssue: { _ in }
+        ).get()
+        cleanupAllowed = false
+        // This defer is newer than file cleanup, so the connection closes first
+        // on every error path as well as on successful publication.
+        defer {
+            do {
+                try writer.databaseQueue.close()
+                cleanupAllowed = true
+            } catch {
+                // Leave this private orphan rather than unlink an open database.
+                cleanupAllowed = false
+            }
+        }
+        do {
+            try writer.databaseQueue.writeWithoutTransaction { database in
+                // Apple's default retains WAL/SHM for read-only clients. This
+                // private inode alone must be self-contained before publication.
+                var flag: CInt = 0
+                let code = withUnsafeMutablePointer(to: &flag) { flagPointer in
+                    sqlite3_file_control(database.sqliteConnection, nil, SQLITE_FCNTL_PERSIST_WAL, flagPointer)
+                }
+                guard code == SQLITE_OK else { throw DatabaseError(resultCode: ResultCode(rawValue: code)) }
+                _ = try database.checkpoint(.truncate)
+            }
+            try writer.databaseQueue.close()
+            cleanupAllowed = true
+        } catch {
+            throw classifyFailure(error, stage: .migration)
+        }
+        guard !FileManager.default.fileExists(atPath: temporaryURL.path + "-wal"),
+            !FileManager.default.fileExists(atPath: temporaryURL.path + "-shm")
+        else { throw CLIStoreFailure.unavailable }
+        // No shared file is visible until WAL setup, schema, identity and
+        // checkpoint are complete. Never replace a sibling creator's store.
+        if Darwin.renamex_np(temporaryURL.path, url.path, UInt32(RENAME_EXCL)) != 0 {
+            guard errno == EEXIST else { throw CLIStoreFailure.unavailable }
         }
     }
 
-    private static func classifyFailure(_ error: any Error) -> CLIStoreFailure {
+    private static func classifyFailure(_ error: any Error, stage: CLIStoreFailure.Stage) -> CLIStoreFailure {
         if let failure = error as? CLIStoreFailure { return failure }
         if let databaseError = error as? DatabaseError {
             switch databaseError.resultCode {
-            case .SQLITE_BUSY, .SQLITE_LOCKED: return .busy
+            case .SQLITE_BUSY, .SQLITE_LOCKED:
+                return .busy(extendedResultCode: databaseError.extendedResultCode.rawValue, stage: stage)
             case .SQLITE_READONLY: return .readOnly
             default: break
             }

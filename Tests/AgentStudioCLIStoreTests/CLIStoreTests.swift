@@ -356,8 +356,15 @@ struct CLIStoreTests {
                 )
             }
         }
-        #expect(observed.failure == .busy)
         #expect(observed.rowCount == 0)
+        let busyFailure = try #require(observed.failure)
+        guard case .busy(let extendedResultCode, let stage) = busyFailure else {
+            Issue.record("A held writer lock did not return SQLite busy")
+            return
+        }
+        let code = try #require(extendedResultCode)
+        #expect(code & 0xFF == 5)
+        #expect(stage == .append)
     }
 
     @Test("writer and reader refuse a foreign channel without changing identity")
