@@ -208,6 +208,7 @@ extension E2ESerializedTests.ScrollbackCaptureIntegrationTests {
             let captured = try await capturedAlternateScreen()
             #expect(captured.contains(Data("\u{1B}[?1049h".utf8)))
             #expect(captured.contains(Data("\u{1B}[?25l".utf8)))
+            #expect(try ScrollbackPersistedForm.isAlternateScreenCapture(captured))
             let legacySnapshot = ScrollbackStore.resetPrefix + captured
             try await withoutBlockingCooperativePool {
                 try FileManager.default.createDirectory(
@@ -215,12 +216,19 @@ extension E2ESerializedTests.ScrollbackCaptureIntegrationTests {
                 try legacySnapshot.write(to: snapshotURL)
             }
             let history = try await restoredHistory(pane: pane, store: store, requireReplay: true)
-            for activeMode in ["1049", "1047", "47", "1000", "1004"] {
+            // Expected defaults come from pinned Ghostty modes.zig, not
+            // the normalization string. All of these default to disabled.
+            for activeMode in [
+                "1049", "1047", "47", "9", "1000", "1002", "1003", "1004", "1005", "1006", "1015", "1016",
+            ] {
                 #expect(
                     !history.bytes.contains(Data("\u{1B}[?\(activeMode)h".utf8)),
                     Comment(rawValue: "mode ?\(activeMode)h remains set after replay normalization"))
             }
             #expect(!history.bytes.contains(Data("\u{1B}[?25l".utf8)))
+            #expect(
+                !history.bytes.contains(Data("\u{1B}[?1007l".utf8)),
+                "mode ?1007 must retain Ghostty's enabled alternate-scroll default")
             let text = try terminalText(history.bytes)
             let marker = try #require(text.range(of: "--- restored after restart ---"))
             let notice = try #require(text.range(of: "Restored after restart"))
