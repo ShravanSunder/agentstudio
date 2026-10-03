@@ -63,16 +63,13 @@ package struct IPCBuiltInMethodRelationshipInputs: Sendable {
 }
 
 package struct IPCBuiltInMethodCatalogInputs: Sendable {
-    package let terminalWaitMaximumSeconds: Double
     package let relationships: IPCBuiltInMethodRelationshipInputs
     package let examples: IPCBuiltInMethodExampleContext
 
     package init(
-        terminalWaitMaximumSeconds: Double,
         relationships: IPCBuiltInMethodRelationshipInputs,
         examples: IPCBuiltInMethodExampleContext
     ) {
-        self.terminalWaitMaximumSeconds = terminalWaitMaximumSeconds
         self.relationships = relationships
         self.examples = examples
     }

@@ -16,9 +16,7 @@ struct MountedTerminalContent {
 /// first render arrives. Carries exactly what `resolveRecreationVerdictOffMain`
 /// needs, since the check itself no longer starts at registration time.
 /// `Sendable` so it can cross into the `Task { @MainActor in ... }`
-/// `receivePostAttachFirstRender` starts, matching `TerminalRestoreKindResolver
-/// .ZmxPaneCapture`'s own precedent for a capture struct crossing an async
-/// boundary.
+/// `receivePostAttachFirstRender` starts.
 struct PendingPostAttachRecreationCheck: Sendable {
     let sessionID: ZmxSessionID
     let baselineIdentity: Data?
@@ -140,7 +138,8 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             let generation = allocateRestoreGeneration()
             let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
                 paneID: pane.id,
-                restoreGeneration: generation
+                restoreGeneration: generation,
+                resumeInvocation: plan.resume
             )
             guard acknowledgment == .armed else {
                 return .failed(

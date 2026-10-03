@@ -72,10 +72,12 @@ package enum ClaudeCodeHookInvocation {
                 payload: payload,
                 providerVersion: providerVersion,
                 correlationIdentifier: inputs.identifierGenerator(),
-                freshOccurrenceIdentifier: inputs.identifierGenerator
+                freshOccurrenceIdentifier: inputs.identifierGenerator,
+                reportIdentifier: inputs.identifierGenerator()
             )
             guard case .projected(let params) = outcome else { return }
-            try send(params: params, environment: inputs.environment)
+            let recorded = ProviderLifecycleRecorder.recording(params, environment: inputs.environment)
+            try send(params: recorded, environment: inputs.environment)
         } catch {
             inputs.diagnosticSink("agentstudio hook claude: \(announcedEvent) not reported")
         }
@@ -97,9 +99,10 @@ package enum ClaudeCodeHookInvocation {
         guard let descriptor = descriptors.first(where: { $0.metadata.name == "session.event" }) else {
             throw ClaudeCodeHookInvocationError.sessionEventUnavailable
         }
+        let cleanup = CLIStoreCleanupHandler(environment: environment)
         let client = AgentStudioIPCClient(
-            configuration: configuration, descriptors: bootstrap + [descriptor]
-        )
+            configuration: configuration, descriptors: bootstrap + [descriptor],
+            onCallCompletion: { cleanup.handle(readThrough: $0) })
         let result = try client.call(
             IPCDescriptorInvocation(
                 descriptor: descriptor,

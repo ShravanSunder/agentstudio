@@ -1,3 +1,4 @@
+import AgentStudioCLIStore
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -19,6 +20,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         package let identifierGenerator: @Sendable () -> UUID
         package let standardOutputSink: @Sendable (String) -> Void
         package let standardErrorSink: @Sendable (String) -> Void
+        package let now: @Sendable () -> Date
 
         package init(
             arguments: [String],
@@ -28,7 +30,8 @@ package struct AgentStudioIPCClientCommandLineRunner {
             standardInput: @escaping @Sendable () -> Data,
             identifierGenerator: @escaping @Sendable () -> UUID,
             standardOutputSink: @escaping @Sendable (String) -> Void,
-            standardErrorSink: @escaping @Sendable (String) -> Void
+            standardErrorSink: @escaping @Sendable (String) -> Void,
+            now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.arguments = arguments
             self.environment = environment
@@ -38,6 +41,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             self.identifierGenerator = identifierGenerator
             self.standardOutputSink = standardOutputSink
             self.standardErrorSink = standardErrorSink
+            self.now = now
         }
     }
 
@@ -55,77 +59,94 @@ package struct AgentStudioIPCClientCommandLineRunner {
             if let code = providerCommandExit(readInput: readInput) {
                 return code
             }
+            let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: props.identifierGenerator())
+            let locallyResolvable = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: examples)
+            if let help = try IPCDescriptorCLIHelp.localHelp(arguments: props.arguments, descriptors: locallyResolvable)
+            {
+                props.standardOutputSink(help)
+                return 0
+            }
             let global = try AgentStudioIPCClientArguments.parseGlobal(
                 props.arguments, environment: props.environment,
                 standardInputProvider: readInput
             )
             endpointCameFromDebugEscrow = global.endpointCameFromDebugEscrow
             let offlineHandler = PaneNotificationOfflineHandler(environment: props.environment)
-            let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: props.identifierGenerator())
             let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
-            let discoveryClient = AgentStudioIPCClient(configuration: global.configuration, descriptors: bootstrap)
-            if global.methodArguments == ["system.capabilities"] {
+            let discoveryClient = makeClient(configuration: global.configuration, descriptors: bootstrap)
+            if global.methodArguments.first == "system.capabilities" {
+                try validateCapabilitiesParameters(global: global, readInput: readInput)
                 try write(JSONEncoder().encode(discoveryClient.discoverCatalog()))
                 return 0
             }
-            let locallyResolvable = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: examples)
+            if global.methodArguments == ["help", "--live"] {
+                try writeLiveHelp(global: global, bootstrap: bootstrap, discoveryClient: discoveryClient)
+                return 0
+            }
+            if global.methodArguments.first == "command.list" {
+                let schema = try IPCEmptyParams.ipcSchema()
+                let arguments = Array(global.methodArguments.dropFirst())
+                _ = try schema.normalize(
+                    IPCDescriptorInvocationParser.toolingParameterData(
+                        arguments: arguments, schema: schema,
+                        standardInput: arguments.first == "--stdin" ? readInput() : nil))
+                try write(JSONEncoder().encode(discoveryClient.discoverCommands()))
+                return 0
+            }
+            let invocation: IPCDescriptorInvocation
             let descriptors: [IPCAnyMethodDescriptor]
-            var commandCatalog: IPCDiscoveredCommandCatalog?
-            // A method this binary was compiled with goes straight out. Only the
-            // command verbs, whose arguments the running app defines, and
-            // anything not compiled here need the catalog.
-            if global.methodArguments.first != "command.list",
-                global.methodArguments.first != "command.execute",
-                IPCBuiltInMethodCatalog.resolvesLocally(
-                    global.methodArguments, descriptors: locallyResolvable)
-            {
-                descriptors = locallyResolvable
+            if global.methodArguments.first == "command.execute" {
+                let descriptor = try IPCAnyMethodDescriptor(
+                    erasing: IPCCommandMethodComposition.compiledExecute())
+                descriptors = bootstrap + [descriptor]
+                invocation = try IPCCommandCLIInvocationParser.parse(
+                    global: global, descriptor: descriptor, readInput: readInput,
+                    correlationIDGenerator: props.identifierGenerator)
             } else {
-                let catalog: IPCMethodCatalogResult
-                do {
-                    catalog = try discoveryClient.discoverCatalog()
-                } catch let unreachable as IPCDescriptorClientFailure where unreachable.permitsOfflineQueue {
-                    try queueNotificationWhileOffline(
-                        global: global, examples: examples, handler: offlineHandler,
-                        standardInputProvider: readInput, unreachable: unreachable
-                    )
-                    return 0
-                }
-                if global.methodArguments.first == "command.list" || global.methodArguments.first == "command.execute" {
-                    switch try resolveDiscoveredCommandDescriptors(
-                        global: global, bootstrap: bootstrap, catalog: catalog,
-                        standardInputProvider: readInput
-                    ) {
-                    case .completed:
-                        return 0
-                    case .resolved(let resolvedDescriptors, let resolvedCatalog):
-                        descriptors = resolvedDescriptors
-                        commandCatalog = resolvedCatalog
-                    }
-                } else {
-                    descriptors = try IPCBuiltInMethodCatalog.matchingDiscoveredMethods(catalog, examples: examples)
-                }
+                descriptors = locallyResolvable
+                invocation = try AgentStudioIPCClientArguments.parseMethod(
+                    global, descriptors: descriptors, correlationIDGenerator: props.identifierGenerator,
+                    standardInputProvider: readInput
+                ).descriptorInvocation
             }
-            var invocation = try AgentStudioIPCClientArguments.parseMethod(
-                global, descriptors: descriptors, correlationIDGenerator: props.identifierGenerator,
-                standardInputProvider: readInput
-            ).descriptorInvocation
-            if let commandCatalog {
-                let request = try JSONDecoder().decode(
-                    IPCCommandExecutionRequest.self, from: invocation.normalizedParameters.data)
-                invocation = try commandCatalog.makeInvocation(
-                    commandId: request.commandId, correlationId: request.correlationId, arguments: request.arguments)
-            }
+            if global.reloadCatalog { _ = try discoveryClient.discoverCatalog() }
             try deliver(
                 invocation: invocation,
-                client: AgentStudioIPCClient(
+                client: makeClient(
                     configuration: global.configuration, descriptors: descriptors),
-                commandCatalog: commandCatalog,
                 offlineHandler: offlineHandler
             )
             return 0
         } catch {
             return exitCode(forFailure: error, endpointCameFromDebugEscrow: endpointCameFromDebugEscrow)
+        }
+    }
+
+    private func validateCapabilitiesParameters(
+        global: IPCClientGlobalArguments, readInput: () -> Data
+    ) throws {
+        let arguments = Array(global.methodArguments.dropFirst())
+        let input = arguments.first == "--stdin" ? readInput() : nil
+        let schema = try IPCEmptyParams.ipcSchema()
+        _ = try schema.normalize(
+            IPCDescriptorInvocationParser.toolingParameterData(
+                arguments: arguments, schema: schema, standardInput: input))
+    }
+
+    private func writeLiveHelp(
+        global: IPCClientGlobalArguments, bootstrap: [IPCAnyMethodDescriptor], discoveryClient: AgentStudioIPCClient
+    ) throws {
+        let catalog = try discoveryClient.discoverCatalog()
+        let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
+        let client = makeClient(
+            configuration: global.configuration,
+            descriptors: bootstrap + [discovery.commandListInvocation.descriptor])
+        switch try client.call(discovery.commandListInvocation) {
+        case .success(let response):
+            let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)
+            props.standardOutputSink(IPCDescriptorCLIHelp.liveCommands(commands.commandDescriptors))
+        case .remoteFailure(let failure):
+            throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
         }
     }
 
@@ -135,7 +156,6 @@ package struct AgentStudioIPCClientCommandLineRunner {
     private func deliver(
         invocation: IPCDescriptorInvocation,
         client: AgentStudioIPCClient,
-        commandCatalog: IPCDiscoveredCommandCatalog?,
         offlineHandler: PaneNotificationOfflineHandler
     ) throws {
         guard invocation.descriptor.metadata.responseDelivery != .subscription else {
@@ -161,8 +181,14 @@ package struct AgentStudioIPCClientCommandLineRunner {
         }
         switch result {
         case .success(let response):
-            if let commandCatalog {
-                _ = try commandCatalog.decodeResult(response.normalizedResult, for: invocation)
+            if invocation.descriptor.metadata.name == "command.execute" {
+                let request = try JSONDecoder().decode(
+                    IPCRawCommandExecutionRequest.self, from: invocation.normalizedParameters.data)
+                let result = try JSONDecoder().decode(
+                    IPCCommandExecutionResult.self, from: response.normalizedResult.data)
+                guard result.commandId == request.commandId, result.correlationId == request.correlationId else {
+                    throw CLIExit.rejected
+                }
             }
             if case .model(let presentation) = invocation.presentation, !presentation.showsDetail {
                 props.standardOutputSink(presentation.successReply)
@@ -189,69 +215,6 @@ package struct AgentStudioIPCClientCommandLineRunner {
         return .modelReply(reply)
     }
 
-    /// `command.list` answers from the discovery response itself, so it finishes
-    /// here rather than continuing to a second call.
-    private func resolveDiscoveredCommandDescriptors(
-        global: IPCClientGlobalArguments,
-        bootstrap: [IPCAnyMethodDescriptor],
-        catalog: IPCMethodCatalogResult,
-        standardInputProvider: () throws -> Data
-    ) throws -> DiscoveredCommandDescriptors {
-        let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
-        let authenticationDescriptors = bootstrap.filter { $0.metadata.name == "auth.login" }
-        guard authenticationDescriptors.count == 1 else { throw CLIExit.rejected }
-        let listClient = AgentStudioIPCClient(
-            configuration: global.configuration,
-            descriptors: authenticationDescriptors + [discovery.commandListInvocation.descriptor]
-        )
-        let response: IPCDescriptorClientResponse
-        switch try listClient.call(discovery.commandListInvocation) {
-        case .success(let successfulResponse):
-            response = successfulResponse
-        case .remoteFailure(let failure):
-            throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
-        }
-        let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)
-        guard global.methodArguments.first != "command.list" else {
-            _ = try AgentStudioIPCClientArguments.parseMethod(
-                global, descriptors: [discovery.commandListInvocation.descriptor],
-                correlationIDGenerator: props.identifierGenerator,
-                standardInputProvider: standardInputProvider)
-            try write(response.normalizedResult.data)
-            return .completed
-        }
-        // The payload is read with the compiled envelope so a recognized hidden
-        // command's arguments survive parsing; the catalog then binds it.
-        return .resolved(
-            authenticationDescriptors + [commands.requestEnvelopeDescriptor], commandCatalog: commands)
-    }
-
-    /// Discovery never reached the app, so the notification is classified from
-    /// the compiled descriptors. Anything that is not an eligible model
-    /// notification keeps the original unreachable failure.
-    private func queueNotificationWhileOffline(
-        global: IPCClientGlobalArguments,
-        examples: IPCBuiltInMethodExampleContext,
-        handler: PaneNotificationOfflineHandler,
-        standardInputProvider: () throws -> Data,
-        unreachable: IPCDescriptorClientFailure
-    ) throws {
-        let descriptors = try IPCBuiltInMethodCatalog.offlineNotificationDescriptors(examples: examples)
-        guard
-            let invocation = try? AgentStudioIPCClientArguments.parseMethod(
-                global, descriptors: descriptors, correlationIDGenerator: props.identifierGenerator,
-                standardInputProvider: standardInputProvider
-            ).descriptorInvocation
-        else {
-            throw unreachable
-        }
-        let client = AgentStudioIPCClient(configuration: global.configuration, descriptors: descriptors)
-        try queueWhileOffline(
-            invocation: invocation, handler: handler,
-            requestLine: { try client.requestFrame(invocation) }, unreachable: unreachable
-        )
-    }
-
     private func queueWhileOffline(
         invocation: IPCDescriptorInvocation,
         handler: PaneNotificationOfflineHandler,
@@ -266,6 +229,17 @@ package struct AgentStudioIPCClientCommandLineRunner {
         case .notQueued:
             throw unreachable
         }
+    }
+
+    private func makeClient(configuration: AgentStudioIPCClientConfiguration, descriptors: [IPCAnyMethodDescriptor])
+        -> AgentStudioIPCClient
+    {
+        let cleanup = CLIStoreCleanupHandler(
+            environment: props.environment, now: props.now,
+            diagnosticSink: props.standardErrorSink)
+        return AgentStudioIPCClient(
+            configuration: configuration, descriptors: descriptors,
+            onCallCompletion: { cleanup.handle(readThrough: $0) })
     }
 
     /// Provider hooks and the package installer are not IPC methods, so they
@@ -316,9 +290,9 @@ package struct AgentStudioIPCClientCommandLineRunner {
 
     private func exitCode(forFailure error: Error, endpointCameFromDebugEscrow: Bool) -> Int32 {
         switch error {
-        case let failure as PaneNotificationSpoolWriteError:
+        case let failure as CLIStoreFailure:
             props.standardErrorSink(
-                "Agent Studio could not durably queue this notification: \(failure.reason.rawValue)")
+                "Agent Studio could not durably queue this notification: \(String(describing: failure))")
         case let failure as IPCCommandDiscoveryError:
             writeStructuredError(CLIErrorPresentation(commandDiscoveryFailure: failure))
         case let failure as IPCDescriptorInvocationError:
@@ -377,11 +351,6 @@ package struct AgentStudioIPCClientCommandLineRunner {
     }
 }
 
-private enum DiscoveredCommandDescriptors {
-    case completed
-    case resolved([IPCAnyMethodDescriptor], commandCatalog: IPCDiscoveredCommandCatalog)
-}
-
 private enum CLIExit: Error {
     case rejected
     case message(String)
@@ -397,6 +366,8 @@ private struct CLIErrorPresentation: Codable {
     let requiredScope: IPCPermissionScope?
     /// The method or command a pane agent was refused, for the agent outcomes.
     var refusedName: String?
+    var commandId: String?
+    var closestMatches: [String]?
 
     /// Every discovery failure already carries a field path and an expectation.
     /// Dropping them left a catalog mismatch indistinguishable from a bad
@@ -425,6 +396,23 @@ private struct CLIErrorPresentation: Codable {
     }
 
     init(remoteFailure: IPCDescriptorRemoteFailure) {
+        if let correction = remoteFailure.commandCorrection {
+            catalogMethod = nil
+            requiredScope = nil
+            switch correction {
+            case .invalidArguments(let path, let expectation):
+                reason = "invalidArguments"
+                fieldPath = path
+                expected = expectation
+            case .unknownCommand(let identifier, let matches):
+                reason = "unknownCommand"
+                fieldPath = nil
+                expected = nil
+                commandId = identifier
+                closestMatches = matches
+            }
+            return
+        }
         refusedName = remoteFailure.agentRefusal?.name
         if let agentRefusal = remoteFailure.agentRefusal {
             reason = agentRefusal.reason.rawValue
@@ -461,8 +449,8 @@ private struct CLIErrorPresentation: Codable {
         if invocationFailure.reason == .unknownMethod {
             reason = "unknownMethod"
             fieldPath = "$.method"
-            expected = "a method advertised by system.capabilities"
-            catalogMethod = "system.capabilities"
+            expected = "a compiled method or model invocation; see agentstudio help"
+            catalogMethod = nil
         } else {
             reason = "invalidParams"
             fieldPath = invocationFailure.fieldPath

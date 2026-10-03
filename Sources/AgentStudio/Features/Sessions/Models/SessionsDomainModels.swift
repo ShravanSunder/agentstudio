@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 package enum SessionsAgentState: String, Sendable, Codable, Equatable {
@@ -199,36 +200,6 @@ package struct SessionsExplicitModelBindInput: Sendable, Equatable {
     }
 }
 
-package struct SessionsBindMutation: Sendable, Codable, Equatable {
-    package let paneId: UUID
-    package let providerIdentifier: String
-    package let providerVersion: String
-    package let providerMode: String
-    package let providerConversationId: String
-    package let sourceId: String
-    package let sourceGenerationId: UUID
-    package let transition: SessionsBindTransition
-    package let freshness: SessionsEvidenceFreshness
-    package let reportedAt: Date
-
-    package static func explicitModelBind(
-        _ input: SessionsExplicitModelBindInput
-    ) -> Self {
-        Self(
-            paneId: input.paneId,
-            providerIdentifier: input.providerIdentifier,
-            providerVersion: input.providerVersion,
-            providerMode: input.providerMode,
-            providerConversationId: input.providerConversationId,
-            sourceId: input.sourceId,
-            sourceGenerationId: input.sourceGenerationId,
-            transition: .explicitModelBind(occurrenceId: input.occurrenceId),
-            freshness: .live,
-            reportedAt: input.reportedAt
-        )
-    }
-}
-
 package enum SessionsReportContext: Sendable, Codable, Equatable {
     case currentPaneBinding(paneId: UUID)
     case sourceGeneration(paneId: UUID, sourceGenerationId: UUID)
@@ -373,11 +344,21 @@ package struct SessionsSourceEndMutation: Sendable, Codable, Equatable {
     package let paneId: UUID
     package let sourceGenerationId: UUID
     package let endedAt: Date
+    package let providerEndReason: ProviderEndReason
+    package let providerEndReasonText: String?
 
-    package init(paneId: UUID, sourceGenerationId: UUID, endedAt: Date) {
+    package init(
+        paneId: UUID,
+        sourceGenerationId: UUID,
+        endedAt: Date,
+        providerEndReason: ProviderEndReason = .notGiven,
+        providerEndReasonText: String? = nil
+    ) {
         self.paneId = paneId
         self.sourceGenerationId = sourceGenerationId
         self.endedAt = endedAt
+        self.providerEndReason = providerEndReason
+        self.providerEndReasonText = providerEndReasonText
     }
 }
 
@@ -419,20 +400,6 @@ package enum SessionsMutation: Sendable, Codable, Equatable {
 package enum SessionsBindingStatus: String, Sendable, Codable, Equatable {
     case active
     case ended
-}
-
-package struct SessionsBindingRecord: Sendable, Codable, Equatable {
-    package let bindingGenerationId: UUID
-    package let paneId: UUID
-    package let conversationId: UUID
-    package let providerIdentifier: String
-    package let providerConversationId: String
-    package let sourceGenerationId: UUID
-    package let transitionOccurrenceId: UUID
-    package let origin: SessionsEvidenceOrigin
-    package let status: SessionsBindingStatus
-    package let startedAt: Date
-    package let endedAt: Date?
 }
 
 package enum SessionsBindingOutcome: Sendable, Codable, Equatable {

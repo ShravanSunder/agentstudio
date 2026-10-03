@@ -70,6 +70,7 @@ final class WorkspaceSurfaceCoordinator {
 
     let store: WorkspaceStore
     var paneActivityClock: PaneActivityClock?
+    var restorePaneRetirementSink: (@Sendable (UUID) async -> Void)?
     let undoClock: @Sendable () async throws -> WorkspaceUndoJournalTime
     let undoDelay: AsyncDelay
     let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -577,8 +578,10 @@ final class WorkspaceSurfaceCoordinator {
     func retirePanesPermanently(_ paneIDs: Set<UUID>) {
         paneActivityClock?.retire(Array(paneIDs))
         for paneID in paneIDs {
+            let retirementSink = restorePaneRetirementSink
             Task { @MainActor in
                 await Ghostty.ActionRouter.retirePanePermanently(paneID: paneID)
+                await retirementSink?(paneID)
             }
             // Program Design item 4: ends the pending cold-start window and
             // removes its kqueue registrations; a no-op with no observer.

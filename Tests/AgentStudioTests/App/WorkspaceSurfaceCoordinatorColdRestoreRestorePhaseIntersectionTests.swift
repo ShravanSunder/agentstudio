@@ -213,7 +213,7 @@ extension E2ESerializedTests {
                 },
                 sink: { input in
                     switch input {
-                    case .restorePhaseArmed(let paneID, let restoreGeneration):
+                    case .restorePhaseArmed(let paneID, let restoreGeneration, _):
                         await projector.armRestorePhase(paneID: paneID, generation: restoreGeneration)
                         factSink(paneID, .restorePhaseArmed(generation: restoreGeneration))
                     case .orderedControl(let surfaceID, let paneID, let precedingAggregate, let control):

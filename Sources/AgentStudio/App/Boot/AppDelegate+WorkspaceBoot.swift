@@ -389,7 +389,7 @@ extension AppDelegate {
         watchedFolderCommands = pipeline
         repositoryFactUpdateSource = pipeline
         installWorktreeCreationCoordinator(publication: pipeline)
-        bootInstallWorkspaceRuntimeOwners(
+        await bootInstallWorkspaceRuntimeOwners(
             paneRuntimeBus: paneRuntimeBus,
             pipeline: pipeline,
             gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
@@ -431,7 +431,7 @@ extension AppDelegate {
         gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider,
         gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate,
         undoRecovery: WorkspaceUndoJournalRecovery
-    ) {
+    ) async {
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
@@ -465,6 +465,11 @@ extension AppDelegate {
             workspaceSurfaceCoordinator.startTerminalSessionCleanup(
                 using: backend,
                 canRetire: { sessionID in !SurfaceManager.shared.hasNativeAttachments(for: sessionID) })
+        }
+        if let workspaceSQLiteDatastore {
+            await installRestoreEvidenceOwners(
+                datastore: workspaceSQLiteDatastore,
+                sessionDirectory: workspaceSurfaceCoordinator.sessionConfig.zmxDir)
         }
         bootInstallPreparedContentMountOwners(coordinator: workspaceSurfaceCoordinator)
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
@@ -593,12 +598,12 @@ extension AppDelegate {
                 uniqueKeysWithValues: contentMountCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
             )
         )
-        // A1 (test technique amendment, Lead 2026-10-01): resolveRestoreKinds
-        // gained a second, default-valued parameter
-        // (observeDerivationExecutionContext), so the unapplied method
-        // reference `.resolveRestoreKinds(for:)` no longer resolves --
-        // Swift doesn't apply default arguments to an unapplied reference.
-        // Forward explicitly instead.
+        // One resolver instance, reused below: `classifyTerminalRestoreKinds`
+        // takes it as a bound, unapplied method reference
+        // (`classifyRestoreKinds(for:publish:)` has no default-valued
+        // parameters, so that reference resolves cleanly); constructing a
+        // second instance here would just recapture `repositoryMainFolder`'s
+        // topology snapshot for no reason.
         let terminalRestoreKindResolver = makeTerminalRestoreKindResolver(
             sessionConfiguration: coordinator.sessionConfig)
         let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
@@ -612,10 +617,14 @@ extension AppDelegate {
             placeholderTransitionHandler: { [weak coordinator] pane, mode in
                 coordinator?.registerTerminalPlaceholderIfNeeded(for: pane, mode: mode)
             },
-            resolveTerminalRestoreKinds: { descriptors in
-                await terminalRestoreKindResolver.resolveRestoreKinds(for: descriptors)
-            }
+            classifyTerminalRestoreKinds: terminalRestoreKindResolver.classifyRestoreKinds(for:publish:),
+            resolveColdResumePlan: makeColdResumePlanResolver()
         )
+        let observer = restoreForegroundObserver
+        coordinator.restorePaneRetirementSink = { [weak contentMountCoordinator] paneId in
+            await contentMountCoordinator?.retirePendingColdPane(PaneId(existingUUID: paneId))
+            await observer?.retire(paneId: paneId)
+        }
         installWorkspacePreparedContentMountOwners(
             InstalledWorkspacePreparedContentMountOwners(
                 cohort: contentMountCohort,
@@ -654,12 +663,13 @@ extension AppDelegate {
             )
             probe = probeBackend
         }
+        let topology = store.repositoryTopologyAtom.captureReadSnapshot()
         return TerminalRestoreKindResolver(
             sessionConfiguration: sessionConfiguration,
             probe: probe,
-            repositoryMainFolder: { [weak self] pane in
+            repositoryMainFolder: { pane in
                 guard let repoId = pane.repoId else { return nil }
-                return self?.store.repositoryTopologyAtom.repo(repoId)?.repoPath
+                return topology.repo(repoId)?.repoPath
             }
         )
     }

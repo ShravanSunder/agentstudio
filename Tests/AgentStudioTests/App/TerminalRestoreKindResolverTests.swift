@@ -235,15 +235,15 @@ struct TerminalRestoreKindResolverTests {
 
     /// A1 (advisor review 2026-10-01; test technique corrected by the Lead
     /// 2026-10-01): the derivation leaving MainActor is a structural,
-    /// compile-time fact — `resolveRestoreKindsOffMain` is `@concurrent
+    /// compile-time fact — `classifyRestoreKinds` is `@concurrent
     /// nonisolated`, so the compiler itself refuses any direct MainActor
     /// access inside it. A runtime timing test doesn't need to re-prove
     /// that; it proves the refactor preserved classification correctness,
     /// the same way every other test in this suite does, across a mixed
-    /// batch large enough to exercise `resolveRestoreKindsOffMain`'s own
-    /// loop and `observeIdentitiesConcurrently`'s bounded fan-out together
-    /// (`AppPolicies.Restore.maximumConcurrentIdentityObservations` is 4;
-    /// this batch mixes alive, refused, and unresponsive sessions past
+    /// batch large enough to exercise `classifyRestoreKinds`'s own task
+    /// group, which bounds per-pane identity observation and kind mapping
+    /// together (`AppPolicies.Restore.maximumConcurrentIdentityObservations`
+    /// is 4; this batch mixes alive, refused, and unresponsive sessions past
     /// that bound).
     @Test("a mixed batch of panes resolves the same per-pane kind after the off-main refactor")
     func mixedBatchResolvesCorrectKindsAfterOffMainRefactor() async throws {
@@ -312,12 +312,13 @@ struct TerminalRestoreKindResolverTests {
     /// machine the off-main loop can finish before any ping runs, flaking
     /// the very case this test exists to catch, which the repo's own rule
     /// against machine-speed-dependent verdicts forbids. Instead,
-    /// `resolveRestoreKindsOffMain`'s own `observeDerivationExecutionContext`
-    /// seam (a no-op in production) records `Thread.isMainThread` from
-    /// inside the derivation itself, right before its per-pane mapping
-    /// loop. RED is deterministic: today's (pre-fix) `@MainActor`
-    /// derivation would always record `true`; after the fix it always
-    /// records `false`, every run, on every machine.
+    /// `resolveRestoreKinds`'s own `observeDerivationExecutionContext` seam
+    /// (a no-op in production) records `Thread.isMainThread` as the first
+    /// statement of that `@concurrent nonisolated` function, before it ever
+    /// delegates to `classifyRestoreKinds`'s per-pane fan-out. RED is
+    /// deterministic: today's (pre-fix) `@MainActor` derivation would
+    /// always record `true`; after the fix it always records `false`,
+    /// every run, on every machine.
     @Test("the restore-kind derivation records a real off-main execution context")
     func derivationRecordsOffMainExecutionContext() async throws {
         let sessionID = try restoredSessionID("as-resolver-structural-offmain")

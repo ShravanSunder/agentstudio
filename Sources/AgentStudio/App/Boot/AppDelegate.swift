@@ -59,6 +59,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var terminalActivityRouter: TerminalActivityRouter!
     var paneActivityClock: PaneActivityClock?
+    private var didForwardRestoreQuit = false
+    var restoreForegroundObserver: PaneForegroundObserver<ContinuousClock>?
+    var restoreForegroundExitWatcher: DarwinProcessExitWatcher?
+    var restoreForegroundLifecycleTask: Task<Void, Never>?
+    var restoreForegroundLifecycleContinuation: AsyncStream<ForegroundLookTrigger>.Continuation?
+    var restoreResumeReadiness: RestoreResumeReadiness<ContinuousClock>?
+    var restoreLaunchBootId: String?
+    var restoreForegroundTriggerSink: (@Sendable (ForegroundLookTrigger) -> Void)?
     var traceRuntime: AgentStudioTraceRuntime!
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
@@ -103,7 +111,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appIPCServerChannel: AgentStudioIPCChannel = AppDelegate.compiledAppIPCChannel()
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
     var appIPCSessionsIngestion: SessionsIngestion?
-    var paneReportSpoolDrainTask: Task<Void, Never>?
+    var appCLILifecycleReportIntake: CLILifecycleReportIntake?
+    var paneCLIOutboxDrainTask: Task<Void, Never>?
     /// Exact provider profiles are composition input. Only the releases listed
     /// here grant provider-reported authority; every other provider, version or
     /// mode reports as unqualified. Composition happens here because the
@@ -296,6 +305,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if !didForwardRestoreQuit {
+            didForwardRestoreQuit = true
+            restoreForegroundTriggerSink?(.appQuitting)
+        }
         #if DEBUG
             sidebarPerformanceProofSession?.completeIdlePopulationForTermination()
         #endif

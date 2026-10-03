@@ -104,6 +104,8 @@ func runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
 
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
+        let foregroundObserver = restoreForegroundObserver
+        async let quitLooks: Void = foregroundObserver?.finishQuitLooks() ?? ()
         // Ingress closes first. Nothing durable happens in this stage, and
         // leaving the socket open across the flushes below would let a late
         // IPC request mutate state the workspace flush had already written.
@@ -158,6 +160,8 @@ extension AppDelegate {
             appLogger.warning("Workspace settings flush failed at termination: \(error.localizedDescription)")
         }
 
+        await quitLooks
+        await shutdownRestoreEvidenceOwners()
         await runTerminationDrain("terminal activity trace") { [weak self] in
             await self?.terminalActivityRouter?.stop()
         }

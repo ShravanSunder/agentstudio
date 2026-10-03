@@ -137,7 +137,10 @@ struct WorkspaceLocalMigrationTests {
             "sessions_operation",
             "sessions_loss",
             "local_ipc_credential",
+            "pane_context_cli_outbox_cursor",
             "local_drawer_presentation",
+            "terminal_pane_foreground_observation",
+            "sessions_cli_report_cursor",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -293,12 +296,9 @@ struct WorkspaceLocalMigrationTests {
 
     @Test("migration 005 copies the existing grouping selection into the main window row before drop")
     func migrationCopiesExistingGroupingModeIntoMainWindowRow() throws {
-        // F4: a real pre-005 on-disk database owns the grouping selection on
-        // local_repo_explorer_preferences.grouping_mode; local_window_state does not yet have
-        // repo_grouping_mode. Simulate that exact shape by migrating only through 004, then
-        // manually reproducing the legacy column and a seeded All Panes / By Tab selection, so the
-        // upgrade path is proven to preserve it rather than silently reset every existing user to
-        // By Repo.
+        // F4: the pre-005 grouping selection lives in local_repo_explorer_preferences.grouping_mode.
+        // local_window_state lacks repo_grouping_mode. Migrate only through 004, then recreate
+        // the legacy column and seed All Panes / By Tab to prove upgrades preserve it instead of resetting to By Repo.
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrator.migrate(
             databaseQueue,
@@ -771,32 +771,6 @@ struct WorkspaceLocalMigrationTests {
         }
     }
 }
-
-private let expectedBootRequiredLocalMigrationIdentifiers = [
-    "001_create_application_local_schema",
-    "002_replace_recent_targets_with_entity_recency",
-    "003_invert_sidebar_group_memory",
-    "004_remove_persisted_pull_request_counts",
-    "005_move_repo_grouping_to_window_sidebar_memory",
-    "006_add_repository_local_activity_facts",
-    "006_create_worktree_annotation_schema",
-    "007_add_worktree_annotation_message_handled",
-    "008_add_worktree_annotation_message_viewed_revision",
-    "009_add_worktree_annotation_reviewed_subject_evidence",
-    "010_remove_worktree_annotation_workspace_provenance",
-    "007_add_per_screen_sidebar_organization",
-    "015_add_panes_drawer_visibility",
-    "015_create_local_drawer_presentation",
-]
-
-private let expectedFullLocalMigrationIdentifiers =
-    expectedBootRequiredLocalMigrationIdentifiers
-    + [
-        "011_create_sessions_ingestion_schema",
-        "012_create_ipc_credential_schema",
-        "013_create_opaque_pane_credential_records",
-        "014_ipc_credentials_pane_only",
-    ]
 
 private struct Migration007Scenario: Sendable {
     let legacyMode: String

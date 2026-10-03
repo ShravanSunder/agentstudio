@@ -13,15 +13,6 @@ package enum WorkspaceLocalMigrations {
         return migrator
     }
 
-    package static var migrator: DatabaseMigrator {
-        var migrator = bootRequiredMigrator
-        registerSessionsSchema(in: &migrator)
-        registerIPCCredentialSchema(in: &migrator)
-        registerOpaquePaneCredentialRecords(in: &migrator)
-        registerPaneOnlyCredentialRecords(in: &migrator)
-        return migrator
-    }
-
     private static func registerInitialBootRequiredMigrations(in migrator: inout DatabaseMigrator) {
         migrator.registerMigration("001_create_application_local_schema") { database in
             for statement in createApplicationLocalSchemaStatements {

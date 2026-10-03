@@ -3,9 +3,17 @@ import Foundation
 
 extension TerminalActivityProjector {
     /// A newer restore generation replaces the previous arm for this pane.
-    func armRestorePhase(paneID: UUID, generation: RestoreGeneration) {
-        recordRestorePhaseGeneration(generation, for: paneID)
+    func armRestorePhase(paneID: UUID, generation: RestoreGeneration, resumeInvocation: ResumeInvocation? = nil) async {
+        recordRestorePhaseGeneration(generation, for: paneID, resumeInvocation: resumeInvocation)
         discardOpenActivityWindowsForRestorePhaseArm(for: paneID)
+        await deliverForegroundEdges()
+    }
+
+    package func matchingResumeRestoreGeneration(
+        paneID: UUID, providerIdentifier: String, providerSessionId: String
+    ) -> RestoreGeneration? {
+        matchingResumeGeneration(
+            paneID: paneID, providerIdentifier: providerIdentifier, providerSessionId: providerSessionId)
     }
 
     /// Only a matching generation ends suppression and establishes a fresh
@@ -20,9 +28,10 @@ extension TerminalActivityProjector {
     }
 
     /// Clears restore suppression only for permanent pane retirement.
-    func retirePanePermanently(paneID: UUID) {
+    func retirePanePermanently(paneID: UUID) async {
         clearRestorePhaseGeneration(for: paneID)
         retirePaneStatePermanently(for: paneID)
+        await deliverForegroundEdges()
     }
 
     func isRestorePhaseActive(paneID: UUID) -> Bool {

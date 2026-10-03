@@ -1,6 +1,25 @@
 # Session restore after a reboot: how it is built
 
-Date: 2026-10-02, revision 23 (R1 as built): item 5's check runs at the pane's first render, and its outcome names exactly what it can see (`matchedAtFirstRender`, `recreated`, `uncheckable(reason)`). Revision 22 lives on the R3 branch and is merged when R3 takes R1.
+Date: 2026-10-02, revision 27 (R3 advisor pass). Three rules close paths to a wrong resume, each with a missed resume as its worst case:
+- a refused report marks the affected binding `evidence_unordered`;
+- lost or replaced CLI-store history marks every binding with no reported end;
+- the pre-restore look follows newer looks at the same incarnation.
+
+The main-thread allowances are listed under "What runs where".
+
+**Revision 26** (R3 review round 1, F6): item 13's resumed-SessionStart end uses `markRestorePhaseEnded`, the person-input boundary, so it orders after an in-flight drain.
+
+**Revision 25** (R3 review round 1): item 7's classification decides completeness per pane, not per `ps` pass. A process exiting in one pane no longer turns every pane's look into `.unknown`.
+
+**Revision 24** (R3 as built, amendment 13): a cold pane waits for resume readiness inside the activation scheduler, as a per-pane eligibility checked before a pane can be picked or claimed (items 4 and 10). R2's quit capture and R3's quit look share the one shutdown bound and run concurrently (item 7).
+
+**Revision 23** (R1 as built): item 5's check runs at the pane's first render, and its outcome names exactly what it can see (`matchedAtFirstRender`, `recreated`, `uncheckable(reason)`).
+
+**Revision 22** (R3 delivery, S3). Two boundaries are settled in code:
+- the foreground observation repository reaches `local.sqlite` only through transaction closures (`ForegroundObservationSQLiteAccess`);
+- the observer reads live pane → zmx session membership off-main from one Core read (`liveZmxSessionsByPane`).
+
+Both are in item 7.
 
 Revision 21 (2026-09-30; owner, option A: warm and unverified reconnects carry the restore script as a fallback plan; the post-attach check is telemetry only). Revision 20 (owner: the CLI store has one writer). `cli_lifecycle_report` rows are immutable, the hook writes once, the app's settlement pass is gone, and cleanup deletes only rows at or below the mark the app returns at login. Unread rows are never deleted. Revision 19 (the N3 residual). The output trigger now comes from the projector's activity window, which opens and closes once per burst and repeats after every quiet. The compact output state has no repeating start edge. Every discarded window sends its close.
 
@@ -162,7 +181,7 @@ R1 and R2 don't depend on R3.
 
    The result type is `ColdStartOutcome = .handedOff | .failed(ColdStartFailure) | .unobservable(ColdStartUnobservableReason)`, where `ColdStartUnobservableReason = .watchRegistrationFailed(errno: Int32) | .identityUnverifiable | .processArgsUnreadable(errno: Int32)`. It's the observer's total result.
    - **Nothing is left behind.** The token disappears with the final `exec`, so the person's shell carries no restore variable. The token never reaches logs, telemetry or OTLP.
-4. **Staggered starts (SR4).** Cold starts use the existing activation scheduler unchanged. `TerminalActivationScheduler` claims and activates **one prepared terminal at a time**, visible first (`AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions = 1`; its single worker is what keeps candidate selection race-free). Activating a cold pane mounts its surface, which starts its `zmx attach`, and the worker moves on once it's mounted. So starts are staggered by activation, but the login shells may still be initializing together. **There's no separate start-slot limit:** gating the single worker on a slot would stall warm panes behind a cold pane's handoff, and a claim-time "not yet" outcome would be a new scheduler seam. That seam is added only if the 20-cold-pane measurement (Proof, R1) shows a real CPU or latency problem. The startup observer (item 3) runs per cold pane, with no slot. Its watch task is owned by the coordinator, cancelled on retirement and at teardown, and announces its outcome as a typed fact.
+4. **Staggered starts (SR4).** Cold starts use the existing activation scheduler. Its admission order and worker count are unchanged; R3 adds only the per-pane resume eligibility described in item 10. `TerminalActivationScheduler` claims and activates **one prepared terminal at a time**, visible first (`AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions = 1`; its single worker is what keeps candidate selection race-free). Activating a cold pane mounts its surface, which starts its `zmx attach`, and the worker moves on once it's mounted. So starts are staggered by activation, but the login shells may still be initializing together. **There's no separate start-slot limit:** gating the single worker on a slot would stall warm panes behind a cold pane's handoff, and a claim-time "not yet" outcome would be a new scheduler seam. That seam is added only if the 20-cold-pane measurement (Proof, R1) shows a real CPU or latency problem. The startup observer (item 3) runs per cold pane, with no slot. Its watch task is owned by the coordinator, cancelled on retirement and at teardown, and announces its outcome as a typed fact.
 5. **Recreation after attach (SR2a).** For warm and unverified panes, one off-main `observe` is compared by **identity** with the warm baseline from item 1.
    - **When it runs: the pane's first render.** Attach completion itself can't be observed:
      - zmx has no attached-client query;
@@ -250,7 +269,16 @@ flowchart LR
      If the store is unavailable, the hook sends live **without** a sequence, and that pane's evidence becomes unordered (below). If that also fails, the report is lost and logged. There's no retry loop.
    - **Intake: one handled prefix, at most once.** `CLILifecycleReportIntake` (an actor, `App/IPCComposition/`) keeps a mark per store in `local.sqlite`: `sessions_cli_report_cursor(store_id TEXT PRIMARY KEY, last_handled_sequence INTEGER)`. **Invariant:** every stored row with `sequence ≤ mark` has been read and dispositioned.
      - **Reading:** it reads rows with `sequence > mark` in ascending order. Missing numbers are just absent: it never waits for `mark + 1`.
-     - **Disposition:** each row it reads is admitted, found to be a duplicate (its occurrence was already applied), or refused with a reason. A refusal covers an undecodable row, an unknown kind, a failed qualification, a retired pane, or a foreign `store_id`. The mark advances to that row **in the same `local.sqlite` transaction** as the Sessions mutation, so a crash can't separate them. A refusal only advances the mark and emits telemetry with its reason class (no raw text); nothing reads refusals, so no table keeps them.
+     - **Disposition:** each row it reads is admitted, found to be a duplicate (its occurrence was already applied), or refused with a reason. A refusal covers an undecodable row, an unknown kind, a failed qualification, a retired pane, or a foreign `store_id`. The mark advances to that row **in the same `local.sqlite` transaction** as the Sessions mutation, so a crash can't separate them. A refusal advances the mark and emits telemetry with its reason class (no raw text), and **it's never correctness-inert** (rev 27, R3 advisor A2): a report the app couldn't take in may be the end that matters.
+       - If the refused row names a pane, that pane's current binding is durably marked `evidence_unordered` in the same transaction. The verdict for it is then `unknown(.evidenceUnordered)` until the existing fence rule clears it with safe evidence for the **current** binding. A report about an earlier binding never clears it.
+       - If the row can't be decoded to a pane, **every** binding with no reported end is marked `evidence_unordered`.
+
+       The cost is a missed resume, never a wrong one. No table keeps refusals; the uncertainty lives on the binding.
+     - **Lost or replaced history** (rev 27, R3 advisor A3):
+       - If `sessions_cli_report_cursor` already holds a handled mark for a store, history was established. That store being missing, or its `store_id` being different, counts as **lost history**. It isn't "empty".
+       - On lost history, the intake marks every binding with no reported end `evidence_unordered` in one transaction, then adopts the store that's now present (or none). An end recorded in the lost store can therefore never be read as "still running".
+       - First use, with no cursor row, keeps the empty path.
+       - The app never creates or migrates the CLI store; it has a single writer.
      - **Live reports:** a live report with `sequence > mark + 1` first causes the intake to read and disposition every stored row with `mark < sequence < N`, then it's admitted and advances the mark. One with `sequence ≤ mark` is a duplicate.
      - **Cleanup follows the single-writer rule** (owner, 2026-09-30; the CLI store's "Delivery" rules in PR B's Program Design):
        - The app opens the store read-only and never marks rows.
@@ -288,6 +316,13 @@ flowchart LR
      - **Columns:** `pane_id` TEXT PK, `zmx_session_id` TEXT, `binding_generation_id` TEXT (nullable), `program` TEXT (parsed into the enum), `observer_launch_id` TEXT, `sequence` INTEGER, `observed_at` TEXT (UTC).
      - **The session identity** is stored as typed columns: `identity_version`, `boot_id`, `daemon_pid`, `daemon_start_seconds`, `daemon_start_microseconds`, `leader_pid`, `leader_start_seconds`, `leader_start_microseconds`, `process_group_id`, `session_created_at`. There's no blob. The repository maps them to and from `ZmxSessionIdentity`, and a row that fails its validation is dropped as no observation.
      - **The Core contract** keeps `sessionIdentity` opaque, as R1's `.warm(identity:)` does.
+     - **How it reaches the database (rev 22).** The repository uses a package `ForegroundObservationSQLiteAccess` of transaction closures, and nothing else.
+       - The App adapter `WorkspaceForegroundObservationSQLiteAccess` sits over Core's `performApplicationLocalWrite`/`Read`, mirroring `SessionsSQLiteAccess`.
+       - No `DatabaseWriter` crosses a module boundary, and Core stays the one transaction owner.
+   - **Which panes it looks at (rev 22).** The observer gets live pane → zmx session membership off-main from one Core-owned read, `WorkspaceSQLiteDatastoreActor.liveZmxSessionsByPane(workspaceId:)`.
+     - It's an async GRDB read of `pane_content_terminal` joined with `pane` for the workspace, provider zmx only. A stored identifier that doesn't parse fails the read rather than being skipped.
+     - It reads the last persisted graph, so it can trail in-memory edits by up to one flush. The observer tolerates that: a removed pane yields nothing, and an added pane is seen on the next look.
+     - There's no main-actor gathering, and no snapshot or receipt contract is reused for it.
    - **The exit watch: push, with the look as the pull fallback** (owner, 2026-09-30). When a look classifies a pane's foreground as an agent, the observer registers one kernel exit watch on **that agent process**: `kqueue` `EVFILT_PROC` `NOTE_EXIT` on macOS, behind the same syscall seam as R1's handoff watch (`pidfd_open` plus `epoll` is the Linux equivalent for a later adapter).
      - **An exit is a trigger, not a record (N1).** `NOTE_EXIT` says the process exited (`kqueue(2)`). It says nothing about what holds the pane's foreground now, or whether the session survived. So the watch writes nothing itself. It makes the pane's look **due now** (`processExited`), and that ordinary look decides:
        - the session answers `observe` with the **same** identity as the look that armed the watch → classify its foreground as any look does and write that: usually `.shell`, or whatever program or agent took over;
@@ -348,13 +383,18 @@ flowchart LR
      - **Accepted residual.** A foreground change that adds no rows, reports nothing and ends no watched process isn't seen until the pane's next trigger. The projector counts rows added, so a change drawn in place on the screen doesn't arm a look. Output triggers also exist only for panes the projector receives samples for. The transitions this design cares about do print: the shell prints "suspended" for Ctrl-Z or a stop signal, `&` prints the job, and an exit is pushed. Spec SR11c records this gap as accepted; the design doesn't claim the triggers cover every transition.
      - `lookSettleDelay` (5 s) and `lookMaxDelay` (60 s) live in `AppPolicies.Restore`.
      - There's no `commandFinished` trigger: shell integration isn't injected into zmx panes by default (advisor report, 2026-09-30).
-   - **The quit look** runs in the observer actor. It's bounded by `AppPolicies.Restore.quitLookDeadline`, inside the existing 2 s shutdown bound, and runs before Sessions finishes. If it doesn't commit in time, the previous look stands, quit proceeds, and the owned task is cancelled.
+   - **The quit look** runs in the observer actor. It's bounded by `AppPolicies.Restore.quitLookDeadline`, inside the existing 2 s shutdown bound, and runs before Sessions finishes. R2's quit capture (item 11) runs concurrently with it inside that same bound, never after it. If it doesn't commit in time, the previous look stands, quit proceeds, and the owned task is cancelled.
    - **Classification:** find the foreground job through `tpgid`, then every row whose `pgid == tpgid`. `argv[0]` is read only from those rows and never stored. A group classifies by the first known agent binary in it, otherwise `.other`. An empty or incomplete `ps` gives `.unknown`, never `.shell`. A stopped or background agent isn't in the foreground, so the look reads `.shell`.
+     - **Completeness is per pane** (revision 25). One `ps` pass serves every pane, but each pane is judged only on its own leader and foreground-group rows, so one pane's churn never erases another pane's look:
+       - a `ps` that fails or can't be parsed makes **every** pane `.unknown`;
+       - if a pane's leader, or one of its rows, is unreadable or has changed group since `ps`, that pane is `.unknown`;
+       - a row whose process has exited since `ps` (`ESRCH`) blocks only a **negative** result. A readable known agent in the group still classifies as that agent, but without one the pane is `.unknown`, never `.shell`. An agent's own short-lived tool processes therefore can't erase its look.
    - **Write admission,** atomic in the repository transaction:
      - the pane isn't retired;
      - `bindingGenerationId` equals the pane's latest binding generation, read inside the transaction;
      - the look is strictly newer by `(observerLaunchId, sequence)`, and a new launch supersedes older launches. There's no identity-difference bypass.
    - **Preserving the pre-restore look.** A cold restore hands the pane's stored look to the resolver as a one-shot value **before** the new session's first look can be admitted.
+     - **The candidate is tied to an incarnation** (rev 27, R3 advisor A1). A newer admitted look at the **same** session incarnation as the cached candidate replaces it, whatever it says (`.shell`, `.other` and `.unknown` included). Only a proven incarnation replacement freezes the candidate, protecting it from the new session's first look. "The prior launch always wins" is gone: an agent that exited to a shell while the app was closed, inside an incarnation that then died, isn't resumed.
 8. **The verdict (E10; a Sessions port, composed in App).** `SessionResumeResolving.resumeEvidence(for: ResumeEvidenceInput) -> ResumeEvidence`. It reads the binding **after** readiness, so every report up to S0 has been applied. The launch sweep (`reducePrepareForLaunch`) is unchanged: it still ends sources and bindings for bookkeeping. "Ended only by sweeps" is read as `status == ended AND provider_ended_at IS NULL`. `reduceSourceEnd` records a provider end that arrives later even on a sweep-ended source, and that makes it known exited.
    - `.knownExited(ProviderEndReason)`: the latest binding has a reported end. `ProviderEndReason = .personExit | .providerOther | .notGiven | .unrecognized`. The raw reason text is kept in the row for display and never exported to telemetry or OTLP.
    - `.interruptedCandidate(ResumeInvocation)`: all of these hold:
@@ -384,6 +424,14 @@ flowchart LR
 
     A report recorded after S0 is live. Each cold pane's verdict is decided **once**, at readiness, and never re-decided.
 
+    **Where a cold pane waits (amendment 13).** The wait lives in `TerminalActivationScheduler` as a per-pane **resume eligibility**. It's checked before a pane can be picked or claimed, so a waiting cold pane never holds the single attach slot:
+    - A pane the mount marks for restore classification starts as `awaitingClassification`.
+    - When its kind arrives (`enqueueRestoreKind`), a warm or unverified pane, or one with no kind, has its kind installed through the admission port and becomes eligible at once. A cold pane moves to `awaitingResumeReadiness`.
+    - At readiness, `releaseAwaitingResumeReadiness` installs each decided cold plan, and those panes become eligible.
+    - A pane retired while it waits ends as `pane_retired` (`retireAwaitingResumeReadiness`).
+
+    Only eligible queued panes can be picked. So warm panes keep activating one at a time, visible first, while cold panes wait, and the single native-start cap (`restoreMaximumConcurrentAdmissions = 1`) is unchanged. `activate()` settles only when no pane is queued or still waiting on eligibility. Between drains it waits on one `eligibilityWaiter` stream (newest-only buffer), registered on the actor before it suspends. Every eligibility change, every retirement and `cancelAndReplace` signal that stream, so a release can't be lost. `memberState(for:)` reports `.awaitingResumeReadiness` and `.retired`.
+
     **Accepted limitation (Spec SR13).** A same-boot hook that was still in flight from the session's earlier run records after S0, with its own new `report_id`. A late `SessionEnd` from it matches the current binding by provider and conversation id (`AgentStudioIPCSessionsAdapter`'s current-generation resolver), so it ends the **resumed** run's binding. The resumed agent keeps running, but that pane isn't auto-resumed at a later restart: a missed resume, never a wrong one. No per-run correlation mechanism is added.
 
 ### R2: scrollback
@@ -411,7 +459,11 @@ flowchart LR
     - **Arming.** Terminal activation awaits `TerminalActivitySourceInput.restorePhaseArmed(paneID:restoreGeneration:)` and requires an **acknowledgment**. The submit returns `RestorePhaseArmAcknowledgment = .armed | .projectorUnbound`, not `Void`. If the projector isn't bound yet, activation waits for the router's bound fact (the router publishes it after `configure` and binding) and then arms. It never creates the surface unarmed.
     - **Ending on person input.** The cold `GhosttySurfaceView` holds a latch that's nil elsewhere. On a non-modifier `keyDown`, `paste` or committed `insertText`, the latch **synchronously** records `restorePhaseEnded(restoreGeneration)` under the surface's `TerminalLocalActionAccumulator` lock (new: `markRestorePhaseEnded(surfaceID:generation:)`), splitting pending activity at that exact point. The existing drain then publishes the pre-input aggregate, the control, then later activity, in that order. Nothing is lost after the latch clears, and there's no `Task` racing output.
     - **Ending on the resumed agent's start.** SessionStart ends the phase only if its provider session id matches this attempt's `ResumeInvocation.sessionId` and it arrives in the current launch (not a spooled replay). The projector deduplicates by generation. Old generations and replaced surfaces are ignored.
-    - **Ending ordered for SessionStart:** a matched live SessionStart is delivered through the same ordered ingress. It uses the pane's current surface with `applyOrderedActivityControl`, which folds the preceding aggregate first, or a pane-keyed source input when there's no surface.
+    - **Ending ordered for SessionStart (corrected, rev 26):** a matched live SessionStart ends the phase at the **same accumulator boundary as person input**: `markRestorePhaseEnded` on the pane's current surface, reached with one MainActor hop to resolve that surface.
+      - If the lane is idle, the call folds pending activity into the end and schedules a drain.
+      - If a drain is already in flight, the call records the end, and `finishDrain` delivers it after that batch.
+
+      Either way, restore-time output reaches the projector inside the phase. A pane with no surface uses the pane-keyed end. `applyOrderedActivityControl` was named here before, but it folds only pending activity and misses an in-flight drain (R3 review round 1, F6).
     - **Gating during the phase is Panes' consumer, specified in Panes' brief** `~/Documents/dev/project-dev/agent-studio.pane-fixes/tmp/design-workflows/2026-09-25-panes-stage1/restore-phase-consumer-brief.md`. That brief is the authority; the summary here is for readers only. It also skips `commandFinished` settling while armed, and ignores stale and duplicate ends. The projector keeps `restorePhaseByPane[paneID] = generation`, independent of the surface-keyed `PaneState`: it survives surface replacement and is cleared by an end with a matching generation or by permanent close.
       - **While active,** the projector keeps compact scrollbar and pin state only. It admits **no** unseen window, activity window or agent candidate, and reads no last line.
       - **On `.restorePhaseEnded`,** it sets `outputBurst = .quiet(latestTotal)`, clears `previousLastOutputLine` and `hasReadableActivityBaseline`, and the first readable line after that becomes the baseline.
@@ -475,6 +527,7 @@ package protocol SessionResumeResolving: Sendable { func resumeEvidence(for inpu
 | CLI store record, migration and cleanup (`cli_lifecycle_report`) | the CLI process (`agentstudio hook`), the only writer | not the app; the app opens the file read-only |
 | Report intake, sweep, `RestoreResumeReadiness` | `CLILifecycleReportIntake` actor, from App IPC initialization after the first frame | existing post-frame path; SQLite I/O off the main actor |
 | Foreground looks (`ps` plus `observe`, **never `zmx list`**), trigger scheduling, exit watches, and their writes | `PaneForegroundObserver` actor plus its repository; the platform seams run blocking calls as `@concurrent` | nothing on the main actor (owner, 2026-09-29/30) |
+| Which panes have a live zmx session | `WorkspaceSQLiteDatastoreActor.liveZmxSessionsByPane(workspaceId:)`, an async read of the persisted graph | off-main; trails in-memory edits by at most one flush, which the observer tolerates (rev 22) |
 | `.outputBegan` / `.outputSettled` | `TerminalActivityProjector` actor calls the observer directly, once per activity-window open and once per close or discard | an existing off-main owner; no bus case, no main-actor hop, and one call per burst edge, not per output sample |
 | The quit trigger | `applicationShouldTerminate` (AppKit, main thread) sends one `.appQuitting` value to the observer | the only main-actor touch: a hand-off, no work |
 | Resume verdict | `SessionResumeResolving`, called off-main from IPC initialization | the mount receives the decided cold plan as a value |
@@ -483,6 +536,19 @@ package protocol SessionResumeResolving: Sendable { func resumeEvidence(for inpu
 | Restore-phase state | `TerminalActivityProjector` (actor) | Panes owner |
 
 No new atom. `ScrollbackStore` is a file repository. The observation table has a single writer, its repository.
+
+
+### Main-thread allowances (rev 27, R3 advisor A4)
+
+The main actor does exactly these restore-evidence steps, and the cost run (Proof, R3) measures each one **separately**. None of them is counted as part of the five zero-main-actor phases:
+
+| Allowance | Where | Why it's on the main actor |
+| --- | --- | --- |
+| Quit forward | `applicationShouldTerminate` sends one `.appQuitting` value | AppKit delivers it there; it's a hand-off with no work |
+| Activation and relaunch forward | `AppDelegate+LifecycleRouting` sends `.relaunched` | the same kind of hand-off |
+| Applying the decided mount value | the coordinator receives the cold plan | it publishes to UI-owned state |
+| Per-row pane membership for stored lifecycle rows | `CLILifecycleReportIntake` awaits the in-memory current-membership predicate for each row (O(1), no SQL, no I/O) | a Lead decision (R3 progress): persisted membership trails by one flush and could refuse a one-shot start |
+| Matched resumed-SessionStart end | one hop to resolve the pane's surface and call `markRestorePhaseEnded` (item 13, rev 26) | the accumulator boundary is surface-keyed; it happens once per resumed pane per launch |
 
 ## Where the code lives (import-safe)
 

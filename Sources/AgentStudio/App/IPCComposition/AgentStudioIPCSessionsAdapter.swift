@@ -3,6 +3,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
+import AgentStudioTerminal
 import Foundation
 
 /// Whether one projected provider event earned a Sessions mutation, and the
@@ -22,7 +23,7 @@ private enum SessionsProviderEventGeneration: Sendable {
     /// The pane's live binding, which this event's conversation still owns.
     case live(SessionsBindingRecord)
     /// A generation of this pane that has already been retired. Evidence
-    /// against it is history and an end for it is a duplicate.
+    /// against it is history; a provider end may still add a fact after a sweep.
     case retired(SessionsBindingRecord)
     /// The pane has bindings, but never one for this conversation.
     case foreignConversation
@@ -40,6 +41,10 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     private let now: @Sendable () -> Date
     private let continuousNow: @Sendable () -> ContinuousClock.Instant
     private let activityClock: PaneActivityClock?
+    private let foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)?
+    private let lifecycleReportSink:
+        (@Sendable (UUID, IPCSessionEventParams, IPCSessionEventProvenance) async throws -> IPCSessionEventResult)?
+    private let resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)?
 
     /// The live IPC server admits messages as `.live`. The offline spool drainer
     /// composes a second adapter over the same ingestion with `.late`, so one
@@ -50,8 +55,16 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         admissionFreshness: SessionsEvidenceFreshness = .live,
         now: @escaping @Sendable () -> Date = { Date() },
         continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
-        activityClock: PaneActivityClock? = nil
+        activityClock: PaneActivityClock? = nil,
+        foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil,
+        resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)? = nil,
+        lifecycleReportSink: (
+            @Sendable (UUID, IPCSessionEventParams, IPCSessionEventProvenance) async throws -> IPCSessionEventResult
+        )? = nil
     ) {
+        self.lifecycleReportSink = lifecycleReportSink
+        self.foregroundLookSink = foregroundLookSink
+        self.resumedSessionStartSink = resumedSessionStartSink
         self.ingestion = ingestion
         self.providerRegistry = providerRegistry
         self.admissionFreshness = admissionFreshness
@@ -63,6 +76,14 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     func recordDeliberateReport(
         paneId: UUID,
         params: IPCSessionReportParams
+    ) async throws -> IPCSessionReportResult {
+        try await recordDeliberateReport(paneId: paneId, params: params, commitParticipant: nil)
+    }
+
+    func recordDeliberateReport(
+        paneId: UUID,
+        params: IPCSessionReportParams,
+        commitParticipant: (any SessionsCommitParticipant)?
     ) async throws -> IPCSessionReportResult {
         let reportedAt = now()
         let mutation: SessionsMutation =
@@ -94,7 +115,9 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                 )
             }
         do {
-            _ = try await ingestion.submit(correlationId: params.correlationId, mutation: mutation)
+            _ = try await ingestion.submit(
+                correlationId: params.correlationId, mutation: mutation,
+                commitParticipant: commitParticipant)
         } catch {
             throw Self.portError(from: error)
         }
@@ -112,6 +135,14 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         paneId: UUID,
         params: IPCSessionMessageParams
     ) async throws -> IPCSessionMessageResult {
+        try await recordAgentMessage(paneId: paneId, params: params, commitParticipant: nil)
+    }
+
+    func recordAgentMessage(
+        paneId: UUID,
+        params: IPCSessionMessageParams,
+        commitParticipant: (any SessionsCommitParticipant)?
+    ) async throws -> IPCSessionMessageResult {
         // Attribution is decided before submission so one correlation always
         // carries one semantic fingerprint. A binding that changes between
         // retries surfaces as a correlation conflict, which R-09 requires,
@@ -122,7 +153,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
             hasLiveBinding ? .currentPaneBinding(paneId: paneId) : .unattributed(paneId: paneId)
         let outcome: SessionsMutationOutcome
         do {
-            outcome = try await ingestion.submit(
+            let submission = try await ingestion.submitWithCommitDisposition(
                 correlationId: params.correlationId,
                 mutation: .message(
                     SessionsMessageMutation(
@@ -131,8 +162,11 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                         freshness: admissionFreshness,
                         receivedAt: now()
                     )
-                )
+                ),
+                commitParticipant: commitParticipant
             )
+            outcome = submission.outcome
+            if submission.disposition == .inserted { await foregroundLookSink?(.agentMessage, paneId) }
         } catch {
             throw Self.portError(from: error)
         }
@@ -152,10 +186,23 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         params: IPCSessionEventParams,
         provenance: IPCSessionEventProvenance
     ) async throws -> IPCSessionEventResult {
+        if let lifecycleReportSink, params.event.name == .sessionStart || params.event.name == .sessionEnd {
+            return try await lifecycleReportSink(paneId, params, provenance)
+        }
+        return try await admitProviderEvent(paneId: paneId, params: params, provenance: provenance)
+    }
+
+    /// Live and stored lifecycle envelopes share exact provider qualification and reduction.
+    func admitProviderEvent(
+        paneId: UUID, params: IPCSessionEventParams, provenance: IPCSessionEventProvenance,
+        historicalStart: Bool = false, reportedAt: Date? = nil,
+        commitParticipant: (any SessionsCommitParticipant)? = nil
+    ) async throws -> IPCSessionEventResult {
         let admission = try await providerAdmission(
             paneId: paneId,
             params: params,
-            snapshot: try await paneSnapshot(paneId: paneId)
+            snapshot: try await paneSnapshot(paneId: paneId),
+            historicalStart: historicalStart, reportedAt: reportedAt
         )
         guard case .admitted(let mutation) = admission else {
             guard case .rejected(let disposition) = admission else {
@@ -181,10 +228,21 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         do {
             let submission = try await ingestion.submitWithCommitDisposition(
                 correlationId: params.correlationId,
-                mutation: mutation
+                mutation: mutation, commitParticipant: commitParticipant
             )
-            if submission.disposition == .inserted, let activityOccurrence {
-                activityClock?.submit(activityOccurrence)
+            if submission.disposition == .inserted {
+                if let activityOccurrence { activityClock?.submit(activityOccurrence) }
+                switch mutation {
+                case .bind, .sourceEnded: await foregroundLookSink?(.bindingChanged, paneId)
+                case .recordEvidence: await foregroundLookSink?(.agentMessage, paneId)
+                default: break
+                }
+                if params.event.name == .sessionStart, !historicalStart, admissionFreshness == .live,
+                    provenance == .matchingPane
+                {
+                    await resumedSessionStartSink?(
+                        paneId, params.provider.identifier, params.event.conversationId)
+                }
             }
         } catch {
             throw Self.portError(from: error)
@@ -244,7 +302,7 @@ extension AgentStudioIPCSessionsAdapter {
     fileprivate func providerAdmission(
         paneId: UUID,
         params: IPCSessionEventParams,
-        snapshot: SessionsSnapshot
+        snapshot: SessionsSnapshot, historicalStart: Bool, reportedAt: Date?
     ) async throws -> SessionsProviderEventAdmissionOutcome {
         let provider = SessionsProviderIdentity(
             providerIdentifier: params.provider.identifier,
@@ -261,7 +319,7 @@ extension AgentStudioIPCSessionsAdapter {
         guard case .qualified = qualification else {
             return .rejected(Self.rejectedDisposition(qualification))
         }
-        let occurredAt = now()
+        let occurredAt = reportedAt ?? now()
         guard params.event.name != .sessionStart else {
             let admission = SessionsQualifiedSessionStartAdmission(
                 provider: provider,
@@ -269,7 +327,7 @@ extension AgentStudioIPCSessionsAdapter {
                     paneId: paneId,
                     providerConversationId: params.event.conversationId,
                     sourceId: params.event.conversationId,
-                    sourceGenerationId: UUIDv7.generate(),
+                    sourceGenerationId: historicalStart ? params.event.occurrenceId : UUIDv7.generate(),
                     occurrenceId: params.event.occurrenceId
                 ),
                 freshness: .live,
@@ -278,7 +336,7 @@ extension AgentStudioIPCSessionsAdapter {
             guard let bind = providerRegistry.qualifiedSessionStartBind(admission) else {
                 return .rejected(.unqualified)
             }
-            return .admitted(.bind(bind))
+            return .admitted(.bind(historicalStart ? bind.recordingHistoricalStart() : bind))
         }
         let generation = try await eventGeneration(
             paneId: paneId,
@@ -290,8 +348,8 @@ extension AgentStudioIPCSessionsAdapter {
         // evidence against it. It is decided before the binding requirement
         // below because ending a pane that is already unbound is not a caller
         // error — there is simply nothing left to retire. An end for a
-        // generation that is already retired is a duplicate: the reduction
-        // recognizes the ended source and changes nothing.
+        // generation that is already retired can still add the reported end
+        // fact after a launch sweep. Only an already-reported end is a no-op.
         guard params.event.name != .sessionEnd else {
             switch generation {
             case .unbound, .foreignConversation:
@@ -299,11 +357,7 @@ extension AgentStudioIPCSessionsAdapter {
             case .live(let binding), .retired(let binding):
                 return .admitted(
                     .sourceEnded(
-                        SessionsSourceEndMutation(
-                            paneId: paneId,
-                            sourceGenerationId: binding.sourceGenerationId,
-                            endedAt: occurredAt
-                        )
+                        Self.sourceEndMutation(for: params, binding: binding, occurredAt: occurredAt)
                     )
                 )
             }
@@ -352,6 +406,22 @@ extension AgentStudioIPCSessionsAdapter {
                     sourceCursor: nil
                 )
             )
+        )
+    }
+
+    private static func sourceEndMutation(
+        for params: IPCSessionEventParams,
+        binding: SessionsBindingRecord,
+        occurredAt: Date
+    ) -> SessionsSourceEndMutation {
+        SessionsSourceEndMutation(
+            paneId: binding.paneId,
+            sourceGenerationId: binding.sourceGenerationId,
+            endedAt: occurredAt,
+            providerEndReason: ProviderEndReason.parse(
+                providerIdentifier: params.provider.identifier, rawReason: params.event.endReason
+            ),
+            providerEndReasonText: params.event.endReason
         )
     }
 
@@ -468,7 +538,7 @@ extension AgentStudioIPCSessionsAdapter {
         _ binding: SessionsBindingRecord?
     ) -> IPCSessionSourceHealth {
         guard let binding else { return .unbound }
-        return binding.status == .active ? .live : .ended
+        return binding.status == .active && !binding.startedFromHistoricalReport ? .live : .ended
     }
 
     fileprivate static func portError(from error: any Error) -> any Error {

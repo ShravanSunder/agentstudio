@@ -65,7 +65,7 @@ struct ZmxSessionControlZombieLeaderTests {
     /// keep throwing `.processUnverifiable`, which that clause does NOT
     /// catch, so the warm-identity check keeps surfacing it as "couldn't
     /// observe" (`try?` in `TerminalRestoreKindResolver
-    /// .observeIdentitiesConcurrently`) rather than a new, unhandled case.
+    /// .classifyRestoreKinds`) rather than a new, unhandled case.
     @Test("observe() for a zombie terminal leader still throws processUnverifiable")
     func observeForAZombieTerminalLeaderStillThrowsProcessUnverifiable() async throws {
         // Arrange

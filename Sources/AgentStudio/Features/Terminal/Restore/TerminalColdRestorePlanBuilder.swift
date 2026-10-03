@@ -8,6 +8,52 @@ import Foundation
 /// (`@MainActor`), this has no MainActor dependency, so the off-main restore
 /// decision (`TerminalRestoreKindResolver`, App) can call it directly.
 package enum TerminalColdRestorePlanBuilder {
+    package static func applyingResumeEvidence(
+        _ evidence: ResumeEvidence, providerIdentifier: String, providerSessionId: String,
+        to plan: TerminalColdRestorePlan
+    ) -> TerminalColdRestorePlan {
+        let invocation: ResumeInvocation?
+        let notice: String
+        switch evidence {
+        case .knownExited:
+            invocation = nil
+            notice = ""
+        case .interruptedCandidate(let candidate):
+            invocation = candidate
+            notice =
+                "Resumed \(candidate.provider.displayName) session \(candidate.sessionId.rawValue.prefix(8)) after restart"
+        case .unknown:
+            invocation = nil
+            let provider = ResumeProvider(providerIdentifier: providerIdentifier)?.displayName ?? providerIdentifier
+            notice =
+                "Could not determine whether \(provider) session \(providerSessionId.prefix(8)) exited; resume it manually."
+        }
+        return TerminalColdRestorePlan(
+            zmxExecutable: plan.zmxExecutable, zmxDirectory: plan.zmxDirectory, sessionID: plan.sessionID,
+            loginShell: plan.loginShell, folderCandidates: plan.folderCandidates,
+            notice: .init(
+                linesByCandidateIndex: plan.notice.linesByCandidateIndex.map {
+                    notice.isEmpty ? $0 : "\($0)\n\(notice)"
+                }),
+            replayFile: plan.replayFile, resume: invocation, attemptID: plan.attemptID)
+    }
+
+    /// Applies when a cold pane never had a current binding to report on and
+    /// readiness itself could not be checked in time (SR12 defect fix). With
+    /// no binding there is no real provider or session id to name, so unlike
+    /// `applyingResumeEvidence` this never invents one: every candidate gets
+    /// the same honest, unattributed notice after its existing restore line, and resume stays nil because
+    /// there is nothing to resume into.
+    package static func applyingUncheckedAgentStateNotice(to plan: TerminalColdRestorePlan) -> TerminalColdRestorePlan {
+        let notice =
+            "Agent state couldn't be checked before restore; if an agent was running here, resume it manually."
+        return TerminalColdRestorePlan(
+            zmxExecutable: plan.zmxExecutable, zmxDirectory: plan.zmxDirectory, sessionID: plan.sessionID,
+            loginShell: plan.loginShell, folderCandidates: plan.folderCandidates,
+            notice: .init(linesByCandidateIndex: plan.notice.linesByCandidateIndex.map { "\($0)\n\(notice)" }),
+            replayFile: plan.replayFile, resume: nil, attemptID: plan.attemptID)
+    }
+
     /// `zmxExecutablePath`, `zmxDirectoryPath` and `loginShellPath` are the
     /// same values `TerminalRestoreRuntime` already resolves for today's warm
     /// attach — passed in rather than re-resolved, so this stays a pure

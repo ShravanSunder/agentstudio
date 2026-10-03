@@ -240,6 +240,14 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case repositoryRetentionPreparation = "performance.repository_retention.preparation"
         case repositoryRetentionCommit = "performance.repository_retention.commit"
         case remoteReferenceRefresh = "performance.remote_reference.refresh"
+        // Restore R3 cost telemetry: one event per owner-measured synchronous
+        // phase (RestoreCostTraceContractTests). `decide` names the resume
+        // verdict step, not the session-resume feature as a whole.
+        case restoreForegroundGather = "performance.restore.foreground.gather"
+        case restoreForegroundSchedule = "performance.restore.foreground.schedule"
+        case restoreForegroundProbe = "performance.restore.foreground.probe"
+        case restoreForegroundWatch = "performance.restore.foreground.watch"
+        case restoreResumeDecide = "performance.restore.resume.decide"
         case repoExplorerRowBodyEvaluation = "performance.repo_explorer.row_body_evaluation"
         case repoExplorerScrollFrameGap = "performance.repo_explorer.scroll_frame_gap"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
@@ -486,6 +494,29 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         var mergedAttributes = attributes()
         mergedAttributes["agentstudio.performance.elapsed_ms"] = .double(Self.milliseconds(from: duration))
         record(event, attributes: mergedAttributes)
+    }
+
+    /// Restore R3 cost telemetry (RestoreCostTraceContractTests): every owner
+    /// phase (`restoreForeground*`, `restoreResumeDecide`) reports these same
+    /// three scalars from a slice it actually measured — `duration` and
+    /// `executedOnMainThread` must come from timing the real synchronous
+    /// work, never a suspension, and a legitimately off-main slice reports a
+    /// real zero rather than skipping the attributes.
+    package func recordRestorePhaseDuration(
+        _ event: Event,
+        duration: Duration,
+        executedOnMainThread: Bool
+    ) {
+        recordDuration(
+            event,
+            duration: duration,
+            attributes: [
+                "agentstudio.performance.restore.execution.count": .int(1),
+                "agentstudio.performance.restore.main_thread.execution.count": .int(executedOnMainThread ? 1 : 0),
+                "agentstudio.performance.restore.main_thread.elapsed_ms": .double(
+                    executedOnMainThread ? Self.milliseconds(from: duration) : 0),
+            ]
+        )
     }
 
     package func recordInteractionLatency(

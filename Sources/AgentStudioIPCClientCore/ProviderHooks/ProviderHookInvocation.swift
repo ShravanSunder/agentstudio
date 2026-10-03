@@ -1,3 +1,4 @@
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -19,7 +20,8 @@ package struct ProviderHookDelivery: Sendable {
     }
 
     package static func liveIPC(
-        exampleIdentifierProvider: @escaping @Sendable () -> UUID
+        exampleIdentifierProvider: @escaping @Sendable () -> UUID,
+        environment: [String: String]
     ) -> Self {
         Self { params, configuration in
             let examples = IPCBuiltInMethodExampleContext(
@@ -38,7 +40,10 @@ package struct ProviderHookDelivery: Sendable {
                 normalizedParameters: descriptor.normalizeParameters(JSONEncoder().encode(params)),
                 presentation: .tooling
             )
-            let client = AgentStudioIPCClient(configuration: configuration, descriptors: descriptors)
+            let cleanup = CLIStoreCleanupHandler(environment: environment)
+            let client = AgentStudioIPCClient(
+                configuration: configuration, descriptors: descriptors,
+                onCallCompletion: { cleanup.handle(readThrough: $0) })
             switch try client.call(invocation) {
             case .success:
                 return
@@ -114,17 +119,20 @@ package enum ProviderHookInvocation {
                 "agentstudio hook codex \(eventName.rawValue): unreadable hook payload")
             return 0
         }
-        guard let projected = CodexHookProjection.project(eventName: eventName, payload: payload) else {
+        let reportIdentifier = UUIDv7.generate()
+        guard
+            let projected = CodexHookProjection.project(
+                eventName: eventName, payload: payload, reportIdentifier: reportIdentifier
+            )
+        else {
             return 0
         }
         do {
             try props.delivery.deliver(
-                IPCSessionEventParams(
-                    handle: "self",
-                    provider: projected.provider,
-                    event: projected.event,
-                    correlationId: props.correlationIdProvider()
-                ),
+                ProviderLifecycleRecorder.recording(
+                    IPCSessionEventParams(
+                        handle: "self", provider: projected.provider, event: projected.event,
+                        correlationId: props.correlationIdProvider()), environment: props.environment),
                 configuration
             )
         } catch let failure as ProviderHookFailure {

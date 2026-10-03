@@ -77,6 +77,7 @@ package final class TerminalActivityRouter {
         clearPaneActivityStatus: (@MainActor (UUID) -> Void)? = nil,
         activityOccurrenceSink: (@Sendable (PaneActivityOccurrence) -> Void)? = nil,
         closeReadDurationSink: (@Sendable (Duration) -> Void)? = nil,
+        foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
@@ -92,7 +93,8 @@ package final class TerminalActivityRouter {
                 agentSettledQuietDuration: agentSettledQuietDuration,
                 clock: unseenActivityClock,
                 activitySink: activityOccurrenceSink,
-                closeReadDurationSink: closeReadDurationSink
+                closeReadDurationSink: closeReadDurationSink,
+                foregroundLookSink: foregroundLookSink
             )
         self.activityAtom = activityAtom
         self.attendedPane = attendedPane
@@ -110,6 +112,30 @@ package final class TerminalActivityRouter {
             lastOutputLineReader ?? { SurfaceManager.shared.readViewportTrailingText(forSurfaceID: $0) }
         self.recordSettledActivityStatus = recordSettledActivityStatus ?? { _, _ in }
         self.clearPaneActivityStatus = clearPaneActivityStatus ?? { _ in }
+    }
+
+    /// App captures this capability once. Provider reports never hop through
+    /// the MainActor router to match the projector's current generation.
+    /// A match takes one bounded surface lookup and latches the ordered end.
+    package var resumedSessionStartSink: @Sendable (UUID, String, String) async -> Void {
+        let projector = projector
+        let surfaceIDForPaneID = surfaceIDForPaneID
+        return { paneId, provider, sessionId in
+            if let generation = await projector.matchingResumeRestoreGeneration(
+                paneID: paneId, providerIdentifier: provider, providerSessionId: sessionId)
+            {
+                let hasSurface = await MainActor.run {
+                    guard let surfaceID = surfaceIDForPaneID(paneId) else { return false }
+                    Ghostty.ActionRouter.localActionAccumulator.markRestorePhaseEnded(
+                        surfaceID: surfaceID, generation: generation,
+                        contextBeforeControl: Ghostty.ActionRouter.terminalActivityProjectionContext(paneID: paneId))
+                    return true
+                }
+                if !hasSurface {
+                    await projector.endRestorePhase(paneID: paneId, generation: generation)
+                }
+            }
+        }
     }
 
     deinit {
@@ -245,8 +271,9 @@ package final class TerminalActivityRouter {
                 precedingAggregate: precedingAggregate,
                 control: control
             )
-        case .restorePhaseArmed(let paneID, let restoreGeneration):
-            await projector.armRestorePhase(paneID: paneID, generation: restoreGeneration)
+        case .restorePhaseArmed(let paneID, let restoreGeneration, let resumeInvocation):
+            await projector.armRestorePhase(
+                paneID: paneID, generation: restoreGeneration, resumeInvocation: resumeInvocation)
         case .restorePhaseEnded(let paneID, let restoreGeneration):
             await projector.endRestorePhase(paneID: paneID, generation: restoreGeneration)
         case .paneRetiredPermanently(let paneID):

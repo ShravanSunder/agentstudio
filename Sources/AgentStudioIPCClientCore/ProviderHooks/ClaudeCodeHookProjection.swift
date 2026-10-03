@@ -1,3 +1,4 @@
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import CryptoKit
 import Foundation
@@ -38,19 +39,22 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
     package let promptId: String?
     package let toolUseId: String?
     package let agentId: String?
+    package let reason: String?
 
     package init(
         sessionId: String,
         hookEventName: String,
         promptId: String?,
         toolUseId: String?,
-        agentId: String?
+        agentId: String?,
+        reason: String? = nil
     ) {
         self.sessionId = sessionId
         self.hookEventName = hookEventName
         self.promptId = promptId
         self.toolUseId = toolUseId
         self.agentId = agentId
+        self.reason = reason
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -59,6 +63,7 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
         case promptId = "prompt_id"
         case toolUseId = "tool_use_id"
         case agentId = "agent_id"
+        case reason
     }
 }
 
@@ -86,14 +91,15 @@ package enum ClaudeCodeHookProjection {
     ///     a disagreement is refused rather than resolved by preference.
     ///   - providerVersion: the Claude Code release recorded when the hooks
     ///     were installed.
-    ///   - freshOccurrenceIdentifier: used only when the document carries no
-    ///     `tool_use_id`, where no stable natural key exists.
+    ///   - freshOccurrenceIdentifier: used for activity without `tool_use_id`.
+    ///   - reportIdentifier: the one lifecycle-report id minted for this hook run.
     package static func project(
         announcedEvent: String,
         payload: ClaudeCodeHookPayload,
         providerVersion: String,
         correlationIdentifier: UUID,
-        freshOccurrenceIdentifier: () -> UUID
+        freshOccurrenceIdentifier: () -> UUID,
+        reportIdentifier: UUID = UUIDv7.generate()
     ) -> ClaudeCodeHookProjectionOutcome {
         guard payload.hookEventName == announcedEvent else {
             return .refused(
@@ -132,8 +138,10 @@ package enum ClaudeCodeHookProjection {
                         sessionId: payload.sessionId,
                         hookEventName: payload.hookEventName,
                         toolUseId: payload.toolUseId,
-                        freshIdentifier: freshOccurrenceIdentifier
-                    )
+                        freshIdentifier: freshOccurrenceIdentifier,
+                        reportIdentifier: reportIdentifier
+                    ),
+                    endReason: name == .sessionEnd ? payload.reason : nil
                 ),
                 correlationId: correlationIdentifier
             )
@@ -141,7 +149,8 @@ package enum ClaudeCodeHookProjection {
     }
 }
 
-/// Derives the occurrence identity for one projected Claude Code hook event.
+/// Lifecycle hooks use their report identity. Activity hooks derive their
+/// occurrence identity from a natural key when one exists.
 ///
 /// A `tool_use_id` is Claude Code's own stable key for the work the event
 /// describes, so the same event retried by the same session derives the same
@@ -153,8 +162,14 @@ package enum ClaudeCodeHookOccurrenceIdentity {
         sessionId: String,
         hookEventName: String,
         toolUseId: String?,
-        freshIdentifier: () -> UUID
+        freshIdentifier: () -> UUID,
+        reportIdentifier: UUID = UUIDv7.generate()
     ) -> UUID {
+        if hookEventName == ClaudeCodeHookEvent.sessionStart.rawValue
+            || hookEventName == ClaudeCodeHookEvent.sessionEnd.rawValue
+        {
+            return reportIdentifier
+        }
         guard let toolUseId, !toolUseId.isEmpty else { return freshIdentifier() }
         return nameBasedIdentifier(name: "claude|\(sessionId)|\(hookEventName)|\(toolUseId)")
     }
