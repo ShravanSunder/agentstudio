@@ -102,6 +102,16 @@ func runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
     await firstPersistenceFlush()
 }
 
+/// Quit capture records its cost before the recorder closes its event queue.
+@MainActor
+func drainPerformanceTraceAfterScrollbackCapture(
+    scrollbackCapture: @MainActor () async -> Void,
+    performanceTraceDrain: @MainActor () async -> Void
+) async {
+    await scrollbackCapture()
+    await performanceTraceDrain()
+}
+
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
         // Ingress closes first. Nothing durable happens in this stage, and
@@ -173,9 +183,6 @@ extension AppDelegate {
         await runTerminationDrain("startup trace") { [weak self] in
             try? await self?.startupTraceRecorder?.drain()
         }
-        await runTerminationDrain("performance trace") { [weak self] in
-            try? await self?.performanceTraceRecorder?.drain()
-        }
 
         let ipcDrainOutcome = await runBoundedIPCDrainAfterWorkspaceFlush(
             timeout: AppPolicies.IPC.shutdownDrainTimeout,
@@ -201,7 +208,7 @@ extension AppDelegate {
             appLogger.warning("IPC drain timed out at termination; continuing shutdown")
         }
 
-        await captureScrollbackForTermination()
+        await captureScrollbackAndDrainPerformanceTraceForTermination()
 
         await runTerminationDrain("trace flush") { [weak self] in
             do {
@@ -218,6 +225,17 @@ extension AppDelegate {
                 appLogger.warning("Trace shutdown failed at termination: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func captureScrollbackAndDrainPerformanceTraceForTermination() async {
+        await drainPerformanceTraceAfterScrollbackCapture(
+            scrollbackCapture: { await self.captureScrollbackForTermination() },
+            performanceTraceDrain: {
+                await self.runTerminationDrain("performance trace") { [weak self] in
+                    try? await self?.performanceTraceRecorder?.drain()
+                }
+            }
+        )
     }
 
     private func runTerminationDrain(

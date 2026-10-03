@@ -2,6 +2,7 @@ import AgentStudioAppIPC
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -16,6 +17,35 @@ import Testing
 @Suite("App termination drain deadline", .serialized)
 struct AppTerminationDrainDeadlineTests {
     init() { installTestCoreAtomsIfNeeded() }
+
+    @Test("quit capture completes before the performance trace drains")
+    func scrollbackCaptureCompletesBeforePerformanceTraceDrain() async throws {
+        let stages = TerminationStageRecorder()
+        let heldCapture = HeldStep<String>("scrollback quit capture before performance drain")
+        let termination = Task { @MainActor in
+            await drainPerformanceTraceAfterScrollbackCapture(
+                scrollbackCapture: {
+                    stages.record("captureStarted")
+                    try? await heldCapture.arrive("captureStarted")
+                    stages.record("captureCompleted")
+                },
+                performanceTraceDrain: { stages.record("performanceDrain") }
+            )
+        }
+
+        do {
+            let arrival = try await heldCapture.firstArrival()
+            #expect(arrival == "captureStarted")
+            #expect(stages.names == ["captureStarted"])
+            heldCapture.release()
+            await termination.value
+            #expect(stages.names == ["captureStarted", "captureCompleted", "performanceDrain"])
+        } catch {
+            heldCapture.release()
+            await termination.value
+            throw error
+        }
+    }
 
     @Test("the AppKit reply fires when a drain stage never completes")
     func replyFiresWhenTheDrainNeverCompletes() async {

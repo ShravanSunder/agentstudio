@@ -237,6 +237,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.source",
     ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.stringAttributeKeys)
+        .union(AgentStudioOTLPScrollbackTaxonomy.stringAttributeKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.stringAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.stringKeys).union(BridgeProductPaintProjectionKeys.stringKeys)
         .union(RendererLifecycleOTLPProjectionKeys.stringAttributeKeys)
@@ -717,6 +718,7 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(AgentStudioOTLPPaneDropTaxonomy.numericAttributeKeys)
         .union(AgentStudioOTLPRepoExplorerTaxonomy.numericAttributeKeys)
+        .union(AgentStudioOTLPScrollbackTaxonomy.numericAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys).union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
         .union(RendererLifecycleOTLPProjectionKeys.numericAttributeKeys)
