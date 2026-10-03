@@ -1,6 +1,13 @@
 # Session restore after a reboot: how it is built
 
-Date: 2026-10-02, revision 26 (R3 review round 1, F6): item 13's resumed-SessionStart end uses `markRestorePhaseEnded`, the person-input boundary, so it orders after an in-flight drain.
+Date: 2026-10-02, revision 27 (R3 advisor pass). Three rules close paths to a wrong resume, each with a missed resume as its worst case:
+- a refused report marks the affected binding `evidence_unordered`;
+- lost or replaced CLI-store history marks every binding with no reported end;
+- the pre-restore look follows newer looks at the same incarnation.
+
+The main-thread allowances are listed under "What runs where".
+
+**Revision 26** (R3 review round 1, F6): item 13's resumed-SessionStart end uses `markRestorePhaseEnded`, the person-input boundary, so it orders after an in-flight drain.
 
 **Revision 25** (R3 review round 1): item 7's classification decides completeness per pane, not per `ps` pass. A process exiting in one pane no longer turns every pane's look into `.unknown`.
 
@@ -262,7 +269,16 @@ flowchart LR
      If the store is unavailable, the hook sends live **without** a sequence, and that pane's evidence becomes unordered (below). If that also fails, the report is lost and logged. There's no retry loop.
    - **Intake: one handled prefix, at most once.** `CLILifecycleReportIntake` (an actor, `App/IPCComposition/`) keeps a mark per store in `local.sqlite`: `sessions_cli_report_cursor(store_id TEXT PRIMARY KEY, last_handled_sequence INTEGER)`. **Invariant:** every stored row with `sequence ≤ mark` has been read and dispositioned.
      - **Reading:** it reads rows with `sequence > mark` in ascending order. Missing numbers are just absent: it never waits for `mark + 1`.
-     - **Disposition:** each row it reads is admitted, found to be a duplicate (its occurrence was already applied), or refused with a reason. A refusal covers an undecodable row, an unknown kind, a failed qualification, a retired pane, or a foreign `store_id`. The mark advances to that row **in the same `local.sqlite` transaction** as the Sessions mutation, so a crash can't separate them. A refusal only advances the mark and emits telemetry with its reason class (no raw text); nothing reads refusals, so no table keeps them.
+     - **Disposition:** each row it reads is admitted, found to be a duplicate (its occurrence was already applied), or refused with a reason. A refusal covers an undecodable row, an unknown kind, a failed qualification, a retired pane, or a foreign `store_id`. The mark advances to that row **in the same `local.sqlite` transaction** as the Sessions mutation, so a crash can't separate them. A refusal advances the mark and emits telemetry with its reason class (no raw text), and **it's never correctness-inert** (rev 27, R3 advisor A2): a report the app couldn't take in may be the end that matters.
+       - If the refused row names a pane, that pane's current binding is durably marked `evidence_unordered` in the same transaction. The verdict for it is then `unknown(.evidenceUnordered)` until the existing fence rule clears it with safe evidence for the **current** binding. A report about an earlier binding never clears it.
+       - If the row can't be decoded to a pane, **every** binding with no reported end is marked `evidence_unordered`.
+
+       The cost is a missed resume, never a wrong one. No table keeps refusals; the uncertainty lives on the binding.
+     - **Lost or replaced history** (rev 27, R3 advisor A3):
+       - If `sessions_cli_report_cursor` already holds a handled mark for a store, history was established. That store being missing, or its `store_id` being different, counts as **lost history**. It isn't "empty".
+       - On lost history, the intake marks every binding with no reported end `evidence_unordered` in one transaction, then adopts the store that's now present (or none). An end recorded in the lost store can therefore never be read as "still running".
+       - First use, with no cursor row, keeps the empty path.
+       - The app never creates or migrates the CLI store; it has a single writer.
      - **Live reports:** a live report with `sequence > mark + 1` first causes the intake to read and disposition every stored row with `mark < sequence < N`, then it's admitted and advances the mark. One with `sequence ≤ mark` is a duplicate.
      - **Cleanup follows the single-writer rule** (owner, 2026-09-30; the CLI store's "Delivery" rules in PR B's Program Design):
        - The app opens the store read-only and never marks rows.
@@ -378,6 +394,7 @@ flowchart LR
      - `bindingGenerationId` equals the pane's latest binding generation, read inside the transaction;
      - the look is strictly newer by `(observerLaunchId, sequence)`, and a new launch supersedes older launches. There's no identity-difference bypass.
    - **Preserving the pre-restore look.** A cold restore hands the pane's stored look to the resolver as a one-shot value **before** the new session's first look can be admitted.
+     - **The candidate is tied to an incarnation** (rev 27, R3 advisor A1). A newer admitted look at the **same** session incarnation as the cached candidate replaces it, whatever it says (`.shell`, `.other` and `.unknown` included). Only a proven incarnation replacement freezes the candidate, protecting it from the new session's first look. "The prior launch always wins" is gone: an agent that exited to a shell while the app was closed, inside an incarnation that then died, isn't resumed.
 8. **The verdict (E10; a Sessions port, composed in App).** `SessionResumeResolving.resumeEvidence(for: ResumeEvidenceInput) -> ResumeEvidence`. It reads the binding **after** readiness, so every report up to S0 has been applied. The launch sweep (`reducePrepareForLaunch`) is unchanged: it still ends sources and bindings for bookkeeping. "Ended only by sweeps" is read as `status == ended AND provider_ended_at IS NULL`. `reduceSourceEnd` records a provider end that arrives later even on a sweep-ended source, and that makes it known exited.
    - `.knownExited(ProviderEndReason)`: the latest binding has a reported end. `ProviderEndReason = .personExit | .providerOther | .notGiven | .unrecognized`. The raw reason text is kept in the row for display and never exported to telemetry or OTLP.
    - `.interruptedCandidate(ResumeInvocation)`: all of these hold:
@@ -519,6 +536,19 @@ package protocol SessionResumeResolving: Sendable { func resumeEvidence(for inpu
 | Restore-phase state | `TerminalActivityProjector` (actor) | Panes owner |
 
 No new atom. `ScrollbackStore` is a file repository. The observation table has a single writer, its repository.
+
+
+### Main-thread allowances (rev 27, R3 advisor A4)
+
+The main actor does exactly these restore-evidence steps, and the cost run (Proof, R3) measures each one **separately**. None of them is counted as part of the five zero-main-actor phases:
+
+| Allowance | Where | Why it's on the main actor |
+| --- | --- | --- |
+| Quit forward | `applicationShouldTerminate` sends one `.appQuitting` value | AppKit delivers it there; it's a hand-off with no work |
+| Activation and relaunch forward | `AppDelegate+LifecycleRouting` sends `.relaunched` | the same kind of hand-off |
+| Applying the decided mount value | the coordinator receives the cold plan | it publishes to UI-owned state |
+| Per-row pane membership for stored lifecycle rows | `CLILifecycleReportIntake` awaits the in-memory current-membership predicate for each row (O(1), no SQL, no I/O) | a Lead decision (R3 progress): persisted membership trails by one flush and could refuse a one-shot start |
+| Matched resumed-SessionStart end | one hop to resolve the pane's surface and call `markRestorePhaseEnded` (item 13, rev 26) | the accumulator boundary is surface-keyed; it happens once per resumed pane per launch |
 
 ## Where the code lives (import-safe)
 
