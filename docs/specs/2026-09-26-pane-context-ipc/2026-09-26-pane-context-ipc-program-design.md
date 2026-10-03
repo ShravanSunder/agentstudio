@@ -1,6 +1,6 @@
 # Enable pane agents: how it is built
 
-Date: 2026-10-02. **Revision 26** (owner, 2026-10-02): two changes to choice 4. Discovery is identified by a catalog digest, with a name filter, a one-row CLI-store cache and no client re-validation, and it comes within the 250 ms budget. Every hook verb is silent: no stdout, no stderr in normal operation, exit 0.
+Date: 2026-10-02. **Revision 27** (owner, 2026-10-02): choice 4 now leads with agents finding their way through `help` and `--help` (Spec R33). Discovery drops rev 26's catalog digest, because the CLI ships in the app bundle and is always the same build. There's no client re-check and discovery gets 500 ms. The digest, cache and filter wait for the Studio service design. **Revision 26** (owner, 2026-10-02): two changes to choice 4. Discovery is identified by a catalog digest, with a name filter, a one-row CLI-store cache and no client re-validation, and it comes within the 250 ms budget. Every hook verb is silent: no stdout, no stderr in normal operation, exit 0.
 
 **Revision 25** (owner, 2026-10-02): link removal ships without agent notification for now (Spec R19 deferred). Gaps item 4 is rewritten: no removal facts are consumed, and the replay request to Bridge is withdrawn.
 
@@ -174,57 +174,38 @@ Nothing computes on the main thread.
    - **Discovery is explicit only:** `system.capabilities`, `command.list`
      and `agentstudio help --live`. A `--reload-catalog` flag asks the app to
      rebuild its catalog on demand.
-   - **Discovery by catalog digest (rev 26; owner, 2026-10-02; Spec R31).**
-     The CLI and the app used to share only the fixed label
-     `catalogIdentifier: "agentstudio-ipc-v2"`
-     (`IPCMethodCatalogResult.swift:4-7`), which doesn't change when a method
-     does. That's why discovery re-fetched the whole catalog and re-checked
-     every schema; client `IPCValidatedJSONSchema.normalize` was about 77% of
-     the 1.45 s p95.
-     - **The digest.** `IPCCatalogDigest` is the SHA-256 (hex) of the
-       canonical encoded `IPCMethodCatalogResult`: methods sorted by name, and
-       `JSONEncoder` with `.sortedKeys`. Those are the exact bytes
-       `system.capabilities` serves. The app and the CLI compute it through
-       the same composition over `IPCBuiltInMethodIndex`, so two builds of the
-       same source agree, and any change to a method, schema or summary
-       changes it. Builds whose inventories differ never match and take the
-       fetch path.
-     - **The app** computes it once when it composes its catalog (the cached
-       encoded bytes from S6c), and again on `--reload-catalog`. It writes
-       `catalogDigest` into the runtime metadata file the CLI already reads to
-       find the socket (`AgentStudioIPCClientRuntimeMetadata`). `system.identify`
-       also returns it.
-     - **The CLI**, for `system.capabilities [--filter <prefix>]` and
-       `help --live`:
-       1. It reads the app's digest from the metadata file. That read already
-          happens, so it costs no extra I/O.
-       2. It composes its own catalog from the inventory and hashes it. If the
-          digests are equal, it answers from its own catalog and makes no
-          connection.
-       3. If they differ, it fetches the app's bytes once and checks their
-          SHA-256 against the advertised digest; a mismatch is refused as
-          `catalogIntegrityFailed`. It prints them **without** client
-          re-validation, because the app validated them when it composed them
-          and the digest proves they're unchanged. It then keeps them in the CLI
-          store under that digest. The next call against the same digest
-          answers from the store.
-       4. `--filter <prefix>` keeps the methods whose name starts with the
-          prefix. The result shape is the same.
-     - **Store.** It's one CLI-store table, `cli_catalog_cache(catalog_digest
-       TEXT PRIMARY KEY, catalog_bytes BLOB NOT NULL, fetched_at TEXT NOT
-       NULL)`. It holds current state, the CLI is its only writer, and it has
-       at most one row: a new digest replaces the old one. It has no `CHECK`
-       and no trigger, and arrives in an additive migration. If the store is
-       unavailable, the CLI fetches every time, fails open and writes nothing.
-     - **Naming a mismatch.** When the app refuses a method as unknown and the
-       digests differ, the CLI's refusal names both short digests (first 8)
-       and points to `agentstudio system.capabilities`. A normal call adds no
-       other step.
-     - **Hard cutover.** The client re-validation of a fetched catalog is
-       removed. The app remains the authority, and the digest is the
-       integrity check.
-     - **Budget.** Discovery is held to the same ≤ 250 ms p95 as other verbs,
-       with no exemption.
+   - **Discovery (rev 27; owner, 2026-10-02; Spec R31).** The CLI ships
+     inside the app bundle (`Contents/Helpers/agentstudio`), and an agent calls
+     its own app's copy through `AGENTSTUDIO_CLI`, so the CLI and the app are
+     always the same build. The CLI therefore doesn't re-validate the catalog
+     the app sends (client `IPCValidatedJSONSchema.normalize` was about 77% of
+     the 1.45 s p95); the app validated it when composing it. This is a hard
+     cutover. Explicit discovery is held to 500 ms.
+     - **Deferred to the Studio service design:** rev 26's catalog digest,
+       its cache and `--filter`. That design covers one tier-2 process that
+       the app starts and that stops with the app, serving the CLI, MCP (a
+       local network server) and plugins. Auth doesn't change: callers' own
+       pane tokens, and the app authorizes. The service restarts on a version
+       change. The Swift CLI is an intermediate step.
+   - **Agents find their way through `help` (rev 27; owner, 2026-10-02:
+     "more important than capabilities"; Spec R33).**
+     - **What an agent may do moves onto the entry.** Each
+       `IPCBuiltInMethodEntry` carries its `agentEligibility` (own pane,
+       any target / read-only, or not yet allowed). The descriptor factory
+       reads it from the entry, so there's one source and the overview
+       builds nothing.
+     - **`agentstudio help`** lists, from the entries alone and with no app
+       connection, every method with its summary and what an agent in a pane
+       may do with it.
+     - **`agentstudio <method> --help`** prints that method's arguments and
+       one example call, built only for that method.
+     - **An unknown method** is refused locally. The refusal names
+       `agentstudio help` and up to 3 closest method names (by edit distance
+       over the entry names), and never `system.capabilities`.
+     - **The shipped skill** (`AgentPackage/skills/agentstudio/SKILL.md`)
+       gains a short "Everything else" section: `"$AGENTSTUDIO_CLI" help`
+       lists what you can call, and `"$AGENTSTUDIO_CLI" <method> --help`
+       shows how. An agent acts on its own pane only.
    - **Budget:** p95 of `cli.call_total_ms` (process start to exit) on a warm
      debug app, measured over 50 calls: ≤ 150 ms for hook verbs and
      `line`/`title`/`notify`, ≤ 250 ms for other verbs.
