@@ -103,6 +103,101 @@ struct RestoreResumeObservationHandoffTests {
         #expect(retainedRows == 0)
     }
 
+    @Test("a newer admitted shell look at the dying incarnation prevents resume after held classification")
+    func sameIncarnationShellLookSupersedesCachedAgent() async throws {
+        let sessions = try AppResumeSessionsFixture()
+        let ingestion = sessions.makeIngestion()
+        let adapter = resumeProducerAdapter(
+            ingestion: ingestion, fixture: sessions, ledger: RestoreSessionsTriggerLedger())
+        let start = try sessions.event(.sessionStart)
+        _ = try await adapter.recordProviderEvent(paneId: sessions.paneId, params: start, provenance: .matchingPane)
+        let snapshot = try await sessions.snapshot()
+        let binding = try #require(snapshot.currentBinding)
+        let observations = try await HandoffObservationFixture.make(
+            sessions: sessions, binding: binding, lookAtSameIncarnation: true)
+        let previous = try await observations.repository.load(paneId: sessions.paneId)
+        let positive = try #require(previous)
+        #expect(positive.program == .codex)
+        let readiness = try ResumeReadinessFixture()
+        let classification = HeldStep<Void>("inventory classification before the original incarnation disappears")
+        let descriptor = TerminalActivationDescriptor(
+            pane: Pane(
+                id: sessions.paneId,
+                content: .terminal(
+                    TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: sessions.zmxSessionId)),
+                metadata: .init(launchDirectory: URL(filePath: "/tmp/handoff-proof"), title: "same-incarnation")),
+            visibilityPriority: .activeVisible, hostPlacement: .tab(tabID: UUIDv7.generate()))
+        let base = try resumeAppBasePlan(descriptor)
+        let resolver = SessionsResumeResolver(repository: sessions.repository)
+        let port = try ResumeAppAdmissionPort(entries: [descriptor])
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: .init(
+                generation: .init(), terminalActivationInput: .init(entries: [descriptor]),
+                nonterminalContentMountInput: .init(entries: [])),
+            viewRegistry: registry, terminalAdmissionPort: port,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort(),
+            classifyTerminalRestoreKinds: { _, publish in
+                try? await classification.arrive(())
+                // The held inventory now proves the original session absent.
+                await publish(descriptor.paneID, .cold(base))
+            },
+            resolveColdResumePlan: { pane, plan in
+                let taken = try? await observations.observer.takePreRestoreObservation(paneId: pane.uuid)
+                let state = await readiness.readiness.wait(paneId: pane.uuid)
+                let evidence =
+                    state == .ready
+                    ? await resolver.resumeEvidence(
+                        for: .init(
+                            paneId: pane.uuid, zmxSessionId: sessions.zmxSessionId, observation: taken,
+                            launchBootId: "old-boot", inventory: .complete([:]))) : .unknown(.reportsNotTakenIn)
+                return TerminalColdRestorePlanBuilder.applyingResumeEvidence(
+                    evidence, providerIdentifier: "codex", providerSessionId: sessions.sessionId, to: plan)
+            })
+        await coordinator.installTerminalGeometryAvailability([descriptor.paneID])
+        let initialization = readiness.beginResumeReadiness {
+            _ = try await ingestion.prepareForLaunch(at: Date(timeIntervalSince1970: 2))
+        }
+        let mount = Task { await coordinator.mount() }
+        do {
+            _ = try await classification.firstArrival()
+            _ = try await observations.expectNewSessionLook(paneId: sessions.paneId)
+            let admitted = try await observations.repository.load(paneId: sessions.paneId)
+            #expect(admitted?.program == .shell)
+            #expect(admitted?.sessionIdentity == positive.sessionIdentity)
+            #expect(admitted?.bindingGenerationId == binding.bindingGenerationId)
+            try await readiness.expectIntakeHeld()
+            await readiness.releaseIntake()
+            await initialization.value
+            classification.release()
+            try await port.expectStartAndFinish(descriptor.paneID)
+            _ = await mount.value
+            let kind = try #require(port.admissions.first?.restoreKind)
+            guard case .cold(let plan) = kind else {
+                Issue.record("expected the decided cold plan after the original incarnation disappeared")
+                throw HandoffDecisionFailure.notCold
+            }
+            #expect(plan.resume == nil)
+            await observations.observer.shutdown()
+            await ingestion.finish()
+            try await readiness.close(initialization: initialization)
+            try await observations.facts.finish()
+            try await port.facts.finish()
+        } catch {
+            classification.retire()
+            readiness.intake.hold.retire()
+            await readiness.readiness.shutdown()
+            _ = await mount.value
+            await observations.observer.shutdown()
+            await ingestion.finish()
+            try? await readiness.close(initialization: initialization)
+            try? await observations.facts.finish()
+            try? await port.facts.finish()
+            throw error
+        }
+    }
+
     @Test("the old stored look reaches the verdict before native admission can replace it with a new-session look")
     func preRestoreLookIsHandedOffBeforeFirstNewLook() async throws {
         let sessions = try AppResumeSessionsFixture()
@@ -198,6 +293,8 @@ struct RestoreResumeObservationHandoffTests {
     }
 }
 
+private enum HandoffDecisionFailure: Error { case notCold }
+
 private func handoffIdentity(bootId: String, daemonPid: Int32) throws -> Data {
     try ZmxSessionIdentity(
         version: 1, bootID: bootId,
@@ -241,7 +338,9 @@ private struct HandoffObservationFixture: Sendable {
         return look
     }
 
-    static func make(sessions: AppResumeSessionsFixture, binding: SessionsBindingRecord) async throws -> Self {
+    static func make(
+        sessions: AppResumeSessionsFixture, binding: SessionsBindingRecord, lookAtSameIncarnation: Bool = false
+    ) async throws -> Self {
         let oldLaunch = UUIDv7.generate()
         let oldIdentity = try handoffIdentity(bootId: "old-boot", daemonPid: 8000)
         let oldObservation = PaneForegroundObservation(
@@ -261,13 +360,17 @@ private struct HandoffObservationFixture: Sendable {
                 describeScope: { "\($0.paneId)/\($0.operationId)" }, describeFact: { String(describing: $0) },
                 isClosing: { _, fact in if case .closed = fact { true } else { false } }))
         let facts = try source.attach()
+        let lookIdentity: Data
+        if lookAtSameIncarnation {
+            lookIdentity = oldIdentity
+        } else {
+            lookIdentity = try handoffIdentity(bootId: "current-boot", daemonPid: 8100)
+        }
         let observer = PaneForegroundObserver(
             clock: TestPushClock(),
             policy: .init(lookSettleDelay: .seconds(5), lookMaxDelay: .seconds(60), quitLookDeadline: .seconds(1)),
             repository: repository,
-            probe: HandoffNewSessionProbe(
-                sessionId: sessions.zmxSessionId,
-                identity: try handoffIdentity(bootId: "current-boot", daemonPid: 8100)),
+            probe: HandoffNewSessionProbe(sessionId: sessions.zmxSessionId, identity: lookIdentity),
             exitWatcher: HandoffNoExitWatcher(), observerLaunchId: launch, factSink: source.sink)
         return Self(repository: repository, observer: observer, facts: facts, launch: launch)
     }

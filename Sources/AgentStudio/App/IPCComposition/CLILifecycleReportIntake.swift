@@ -133,17 +133,21 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
             // Reading the fence cannot advance the prefix or admit older rows first.
             let fence = try? await readStore(after: 0, through: 0)?.highWater
             guard await paneExists(paneId, workspaceID), !finalRevokedPaneIDs().contains(paneId) else {
-                refusalProbe(.retiredPane)
+                try await refuse(.retiredPane, storeID: nil, sequence: nil, paneID: paneId)
                 return refused(paneId: paneId, params: params)
             }
             let participant = CLILifecycleCursorCommitParticipant(
                 storeID: nil, sequence: nil,
                 paneID: paneId, ordering: .unordered(fence: fence), finalRevokedPaneIDs: finalRevokedPaneIDs)
             do {
-                return try await admission.admitProviderEvent(
+                let result = try await admission.admitProviderEvent(
                     paneId: paneId, params: params, provenance: provenance, commitParticipant: participant)
+                if result.disposition != .admitted {
+                    try await refuse(.qualificationRejected, storeID: nil, sequence: nil, paneID: paneId)
+                }
+                return result
             } catch CLILifecycleCommitRefusal.retiredPane {
-                refusalProbe(.retiredPane)
+                try await refuse(.retiredPane, storeID: nil, sequence: nil, paneID: paneId)
                 return refused(paneId: paneId, params: params)
             }
         }
@@ -151,7 +155,9 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
             let read = try await readStore(after: 0, through: 0), read.storeID == position.storeId,
             position.sequence <= read.highWater
         else {
-            refusalProbe(.foreignStore)
+            // An unverified receipt is not a handled prefix of the actual store.
+            // It still makes the named pane uncertain, awaiting a safe fence.
+            try await refuse(.foreignStore, storeID: nil, sequence: nil, paneID: paneId)
             return refused(paneId: paneId, params: params)
         }
         let mark = try await readMark(position.storeId)
@@ -198,7 +204,7 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
         sequence: Int64, recordedAt: Date?, provenance: IPCSessionEventProvenance = .matchingPane
     ) async throws -> IPCSessionEventResult {
         guard await paneExists(paneID, workspaceID), !finalRevokedPaneIDs().contains(paneID) else {
-            try await refuse(.retiredPane, storeID: storeID, sequence: sequence)
+            try await refuse(.retiredPane, storeID: storeID, sequence: sequence, paneID: paneID)
             return refused(paneId: paneID, params: params)
         }
         // Fence the latest established generation, not whichever old binding was modified last.
@@ -223,7 +229,7 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
             )
         }
         if ordering.0, ordering.1 == nil || sequence <= (ordering.1 ?? Int64.max) {
-            try await refuse(.supersededByUnorderedReport, storeID: storeID, sequence: sequence)
+            try await refuse(.supersededByUnorderedReport, storeID: storeID, sequence: sequence, paneID: paneID)
             return refused(paneId: paneID, params: params)
         }
         let historical: Bool
@@ -234,7 +240,11 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
         }
         let participant = CLILifecycleCursorCommitParticipant(
             storeID: storeID, sequence: sequence,
-            paneID: paneID, ordering: .ordered, finalRevokedPaneIDs: finalRevokedPaneIDs)
+            paneID: paneID,
+            ordering: .ordered(
+                providerIdentifier: params.provider.identifier, conversationID: params.event.conversationId,
+                correlationID: params.correlationId),
+            finalRevokedPaneIDs: finalRevokedPaneIDs)
         let result: IPCSessionEventResult
         do {
             result = try await admission.admitProviderEvent(
@@ -242,11 +252,11 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
                 historicalStart: historical && params.event.name == .sessionStart,
                 reportedAt: recordedAt, commitParticipant: participant)
         } catch CLILifecycleCommitRefusal.retiredPane {
-            try await refuse(.retiredPane, storeID: storeID, sequence: sequence)
+            try await refuse(.retiredPane, storeID: storeID, sequence: sequence, paneID: paneID)
             return refused(paneId: paneID, params: params)
         }
         if result.disposition != .admitted {
-            try await refuse(.qualificationRejected, storeID: storeID, sequence: sequence)
+            try await refuse(.qualificationRejected, storeID: storeID, sequence: sequence, paneID: paneID)
         }
         return result
     }
@@ -261,10 +271,12 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
         }
     }
 
-    private func refuse(_ reason: CLILifecycleRefusalReason, storeID: UUID, sequence: Int64) async throws {
+    private func refuse(
+        _ reason: CLILifecycleRefusalReason, storeID: UUID?, sequence: Int64?, paneID: UUID? = nil
+    ) async throws {
         let participant = CLILifecycleCursorCommitParticipant(
             storeID: storeID, sequence: sequence,
-            paneID: nil, ordering: .unchanged)
+            paneID: paneID, ordering: .refused(fence: sequence))
         try await sqliteAccess.write { try participant.commit(in: $0) }
         refusalProbe(reason)
     }
@@ -274,7 +286,14 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
     }
 
     private func readStore(after mark: Int64, through boundary: Int64) async throws -> LifecycleStoreRead? {
-        try await Self.readStore(url: storeURL, channel: expectedChannel, after: mark, through: boundary)
+        let read = try await Self.readStore(url: storeURL, channel: expectedChannel, after: mark, through: boundary)
+        let presentStoreID = read?.storeID
+        // A successful missing-file read is empty only on first use. Established
+        // history loss poisons evidence and adopts the new identity atomically.
+        try await sqliteAccess.write {
+            try CLILifecycleCursorCommitParticipant.reconcileStore(in: $0, presentStoreID: presentStoreID)
+        }
+        return read
     }
 
     @concurrent private nonisolated static func readStore(

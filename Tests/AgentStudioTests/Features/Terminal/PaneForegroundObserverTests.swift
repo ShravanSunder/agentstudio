@@ -234,6 +234,22 @@ struct PaneForegroundObserverTests {
         }
     }
 
+    @Test("shutdown preserves an admitted positive look for the one-shot restore handoff")
+    func stoppedObserverHandsOffDurablePositiveLook() async throws {
+        try await withForegroundObserverFixture { fixture in
+            await fixture.observer.note(.bindingChanged, pane: fixture.paneId)
+            try await fixture.expectScheduled()
+            let scope = try await fixture.expectLookStarted(sequence: 1)
+            _ = try await fixture.finishLook(scope: scope, agent: true)
+            let previous = try #require(await fixture.repository.load(paneId: fixture.paneId))
+            #expect(previous.program == .claudeCode)
+            await fixture.observer.shutdown()
+            let taken = try await fixture.observer.takePreRestoreObservation(paneId: fixture.paneId)
+            #expect(taken == previous)
+            #expect(try await fixture.observer.takePreRestoreObservation(paneId: fixture.paneId) == nil)
+        }
+    }
+
     @Test("the pre-restore look is taken once before new-session evidence can replace it")
     func preRestoreHandoffIsOneShot() async throws {
         try await withForegroundObserverFixture { fixture in

@@ -73,7 +73,19 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
     private var retiredPanes: Set<UUID> = []
     private var handoffs: Set<UUID> = []
     private var capturedPreRestorePanes: Set<UUID> = []
-    private var preRestoreObservations: [UUID: PaneForegroundObservation] = [:]
+    private struct RestoreCandidate {
+        var observation: PaneForegroundObservation
+        var incarnationReplaced = false
+    }
+    private var preRestoreObservations: [UUID: RestoreCandidate] = [:]
+    // Serialize admission and one-shot handoff across repository suspensions.
+    // Probing and other panes remain independent; these waiters own no tasks.
+    private var observationOperations: Set<UUID> = []
+    private struct ObservationWaiter {
+        let continuation: CheckedContinuation<Bool, Never>
+        let allowsStopped: Bool
+    }
+    private var observationWaiters: [UUID: [ObservationWaiter]] = [:]
     private var quitWaiters: [AsyncStream<Void>.Continuation] = []
     private var sequence: UInt64 = 0
     private var tasks: [UUID: Task<Void, Never>] = [:]
@@ -247,7 +259,9 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
 
     private func admitSnapshot(_ snapshot: ForegroundSnapshot, binding: ForegroundPaneBinding, look: RunningLook) async
     {
-        guard isCurrent(look) else { return }
+        guard await acquireObservationOperation(binding.paneId) else { return }
+        defer { releaseObservationOperation(binding.paneId) }
+        guard isCurrent(look), !Task.isCancelled else { return }
         if let identity = look.requiredIdentity, identity != snapshot.sessionIdentity {
             completeLook(binding.paneId, look: look)
             return
@@ -260,12 +274,21 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
             if !handoffs.contains(binding.paneId), !capturedPreRestorePanes.contains(binding.paneId) {
                 let previous = try await repository.load(paneId: binding.paneId)
                 if let previous, previous.observerLaunchId != observerLaunchId,
-                    !handoffs.contains(binding.paneId), capturedPreRestorePanes.insert(binding.paneId).inserted
+                    !stopped, !retiredPanes.contains(binding.paneId), !handoffs.contains(binding.paneId),
+                    capturedPreRestorePanes.insert(binding.paneId).inserted
                 {
-                    preRestoreObservations[binding.paneId] = previous
+                    preRestoreObservations[binding.paneId] = RestoreCandidate(observation: previous)
                 }
             }
+            guard isCurrent(look), !Task.isCancelled else { return }
             let admission = try await repository.admit(observation)
+            // An admitted look matters even if its scheduling scope expired
+            // during the write. Never let that hide a same-incarnation exit.
+            if admission == .admitted, !stopped, !retiredPanes.contains(binding.paneId),
+                !handoffs.contains(binding.paneId)
+            {
+                updateRestoreCandidate(observation)
+            }
             guard isCurrent(look) else { return }
             factSink(look.scope, .observation(admission))
             if admission == .admitted {
@@ -391,11 +414,55 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
     }
 
     package func takePreRestoreObservation(paneId: UUID) async throws -> PaneForegroundObservation? {
+        // Stopping ends live observation, not access to durable restore evidence.
+        guard await acquireObservationOperation(paneId, allowsStopped: true) else { return nil }
+        defer { releaseObservationOperation(paneId) }
         guard !retiredPanes.contains(paneId), handoffs.insert(paneId).inserted else { return nil }
         if capturedPreRestorePanes.contains(paneId) {
-            return preRestoreObservations.removeValue(forKey: paneId)
+            return preRestoreObservations.removeValue(forKey: paneId)?.observation
         }
-        return try await repository.load(paneId: paneId)
+        let observation = try await repository.load(paneId: paneId)
+        return !retiredPanes.contains(paneId) ? observation : nil
+    }
+
+    private func updateRestoreCandidate(_ observation: PaneForegroundObservation) {
+        let paneId = observation.paneId
+        if var candidate = preRestoreObservations[paneId] {
+            guard !candidate.incarnationReplaced else { return }
+            if candidate.observation.zmxSessionId == observation.zmxSessionId,
+                candidate.observation.sessionIdentity == observation.sessionIdentity
+            {
+                candidate.observation = observation
+            } else {
+                // Admission validated the identity: this is a proven replacement.
+                candidate.incarnationReplaced = true
+            }
+            preRestoreObservations[paneId] = candidate
+        } else {
+            capturedPreRestorePanes.insert(paneId)
+            preRestoreObservations[paneId] = RestoreCandidate(observation: observation)
+        }
+    }
+
+    private func acquireObservationOperation(_ paneId: UUID, allowsStopped: Bool = false) async -> Bool {
+        guard !stopped || allowsStopped else { return false }
+        if observationOperations.insert(paneId).inserted { return true }
+        // Continuations survive caller cancellation until ownership is passed;
+        // a cancelled look then releases immediately instead of stranding a pane.
+        return await withCheckedContinuation { continuation in
+            observationWaiters[paneId, default: []].append(
+                ObservationWaiter(continuation: continuation, allowsStopped: allowsStopped))
+        }
+    }
+
+    private func releaseObservationOperation(_ paneId: UUID) {
+        if var waiters = observationWaiters[paneId], !waiters.isEmpty {
+            let next = waiters.removeFirst()
+            observationWaiters[paneId] = waiters.isEmpty ? nil : waiters
+            next.continuation.resume(returning: !stopped || next.allowsStopped)
+        } else {
+            observationOperations.remove(paneId)
+        }
     }
 
     /// The quit deadline is owned here, so App can join the bounded final look
@@ -431,6 +498,14 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
             return
         }
         stopped = true
+        // Admission waiters stop now; handoffs retain FIFO ownership and drain
+        // after the in-flight owner releases, including after shutdown returns.
+        for paneId in Array(observationWaiters.keys) {
+            let waiting = observationWaiters[paneId] ?? []
+            let handoffWaiters = waiting.filter(\.allowsStopped)
+            observationWaiters[paneId] = handoffWaiters.isEmpty ? nil : handoffWaiters
+            for waiter in waiting where !waiter.allowsStopped { waiter.continuation.resume(returning: false) }
+        }
         resolveQuitWaitersIfSettled()
         preRestoreObservations.removeAll()
         capturedPreRestorePanes.removeAll()
