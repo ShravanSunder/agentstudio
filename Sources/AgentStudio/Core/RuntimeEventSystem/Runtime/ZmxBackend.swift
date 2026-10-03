@@ -270,11 +270,11 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
             + "/bin/sh -c \(shellEscape(script)) \(shellEscape(plan.attemptID.startupToken))"
     }
 
-    private static func coldRestoreScript(for plan: TerminalColdRestorePlan) -> String {
+    static func coldRestoreScript(for plan: TerminalColdRestorePlan) -> String {
         precondition(!plan.folderCandidates.isEmpty, "a cold restore plan must carry at least one folder candidate")
         precondition(
             plan.notice.linesByCandidateIndex.count == plan.folderCandidates.count,
-            "a cold restore notice must carry exactly one line per folder candidate"
+            "a cold restore notice must carry exactly one entry per folder candidate"
         )
 
         var lines: [String] = [
@@ -285,8 +285,8 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
         ]
         lines.append(contentsOf: folderFallbackLines(plan: plan))
         if let replayFile = plan.replayFile {
-            // R2 finalizes this marker's exact copy; R1 never populates
-            // replayFile, so this branch never runs today.
+            // Replay follows the selected folder notice and precedes the
+            // restart marker and the fresh shell (SR10).
             lines.append("cat \(shellEscape(replayFile.path)) 2>/dev/null")
             lines.append("echo \(shellEscape("--- restored after restart ---"))")
         }

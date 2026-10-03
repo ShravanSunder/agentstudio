@@ -32,15 +32,18 @@ struct TerminalRestoreKindResolver: Sendable {
     /// resolver were never wired in (matching `TerminalRestoreRuntime
     /// .startupCommand`'s existing `nil`-kind fallback).
     private let probe: (any ZmxSessionRestoreProbing)?
+    private let scrollbackStore: ScrollbackStore
     private let repositoryMainFolder: @MainActor (Pane) -> URL?
 
     init(
         sessionConfiguration: SessionConfiguration,
         probe: (any ZmxSessionRestoreProbing)?,
+        scrollbackStore: ScrollbackStore = ScrollbackStore(),
         repositoryMainFolder: @escaping @MainActor (Pane) -> URL?
     ) {
         self.sessionConfiguration = sessionConfiguration
         self.probe = probe
+        self.scrollbackStore = scrollbackStore
         self.repositoryMainFolder = repositoryMainFolder
     }
 
@@ -75,7 +78,7 @@ struct TerminalRestoreKindResolver: Sendable {
 
         var restoreKindsByPaneID: [PaneId: TerminalRestoreKind] = [:]
         for entry in zmxPanes {
-            restoreKindsByPaneID[entry.paneID] = resolveKind(
+            restoreKindsByPaneID[entry.paneID] = await resolveKind(
                 pane: entry.pane,
                 sessionID: entry.sessionID,
                 inventory: inventory,
@@ -135,44 +138,47 @@ struct TerminalRestoreKindResolver: Sendable {
         inventory: ZmxSessionInventory,
         zmxPath: String,
         observedIdentity: Data?
-    ) -> TerminalRestoreKind {
+    ) async -> TerminalRestoreKind {
+        let plan = await buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath)
         switch inventory {
         case .unavailable(let failure):
             return .unverified(
                 .inventoryUnavailable(failure),
-                fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
+                fallback: plan)
         case .complete(let entriesBySessionID):
             switch entriesBySessionID[sessionID] {
             case .alive:
                 guard let observedIdentity else {
                     return .unverified(
                         .warmIdentityUnobservable,
-                        fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
+                        fallback: plan)
                 }
                 return .warm(
                     identity: observedIdentity,
-                    fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
+                    fallback: plan)
             case .refused, nil:
                 // Absent from a complete inventory, or refused: both are
                 // proof of death (SR2), never merely unseen.
-                return .cold(buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
+                return .cold(plan)
             case .unresponsive:
                 return .unverified(
                     .sessionUnresponsive,
-                    fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
+                    fallback: plan)
             }
         }
     }
 
     @MainActor
-    private func buildColdPlan(pane: Pane, sessionID: ZmxSessionID, zmxPath: String) -> TerminalColdRestorePlan {
-        TerminalColdRestorePlanBuilder.buildPlan(
+    private func buildColdPlan(pane: Pane, sessionID: ZmxSessionID, zmxPath: String) async -> TerminalColdRestorePlan {
+        await TerminalColdRestorePlanBuilder.buildPlan(
             pane: pane,
             sessionID: sessionID,
-            zmxExecutablePath: zmxPath,
-            zmxDirectoryPath: sessionConfiguration.zmxDir,
-            loginShellPath: SessionConfiguration.defaultShell(),
-            repositoryMainFolder: repositoryMainFolder(pane)
+            launchPaths: TerminalColdRestoreLaunchPaths(
+                zmxExecutablePath: zmxPath,
+                zmxDirectoryPath: sessionConfiguration.zmxDir,
+                loginShellPath: SessionConfiguration.defaultShell()),
+            repositoryMainFolder: repositoryMainFolder(pane),
+            scrollbackStore: scrollbackStore
         )
     }
 }

@@ -1,9 +1,10 @@
-import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Darwin
 import Foundation
 import Testing
+
+@testable import AgentStudioCore
 
 /// Isolated real terminal with FIFO-controlled output and a parsed-output
 /// witness. No surface, polling, process timeout, or continuation waiter.

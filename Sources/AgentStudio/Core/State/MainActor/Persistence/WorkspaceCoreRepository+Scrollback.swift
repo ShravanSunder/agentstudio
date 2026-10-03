@@ -6,7 +6,7 @@ extension WorkspaceCoreRepository {
     /// visibility nor a native surface is an admission input to capture.
     @concurrent nonisolated func scrollbackPaneBindings(workspaceID: UUID) async throws -> [ScrollbackPaneBinding] {
         try Task.checkCancellation()
-        let bindings = try databaseWriter.read { database in
+        let bindings = try await databaseWriter.read { database in
             try Row.fetchAll(
                 database,
                 sql: """

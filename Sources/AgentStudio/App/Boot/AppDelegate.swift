@@ -74,7 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var worktreeAnnotationStore: WorktreeAnnotationServiceActor!
     var worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor!
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
-    var scrollbackStore: ScrollbackStore?
+    let scrollbackStore = ScrollbackStore()
     var bridgeGitReadScheduler: BridgeGitReadScheduler!
     var bridgeWorktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!

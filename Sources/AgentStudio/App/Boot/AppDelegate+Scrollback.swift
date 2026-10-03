@@ -14,8 +14,7 @@ extension AppDelegate {
     func installScrollbackSnapshotter(using backend: ZmxBackend) {
         guard let datastore = workspaceSQLiteDatastore else { return }
         let workspaceID = store.identityAtom.workspaceId
-        let scrollback = ScrollbackStore()
-        scrollbackStore = scrollback
+        let scrollback = scrollbackStore
         workspaceSurfaceCoordinator.scrollbackSnapshotter = ScrollbackSnapshotter(
             clock: ContinuousClock(), store: scrollback,
             inventory: { await backend.discoverSessionInventory() },

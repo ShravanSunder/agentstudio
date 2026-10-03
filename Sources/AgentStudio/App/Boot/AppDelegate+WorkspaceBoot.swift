@@ -653,6 +653,7 @@ extension AppDelegate {
         return TerminalRestoreKindResolver(
             sessionConfiguration: sessionConfiguration,
             probe: probe,
+            scrollbackStore: scrollbackStore,
             repositoryMainFolder: { [weak self] pane in
                 guard let repoId = pane.repoId else { return nil }
                 return self?.store.repositoryTopologyAtom.repo(repoId)?.repoPath
