@@ -83,18 +83,33 @@ extension ColdStartObserverTests {
         let socketPath = temporaryDirectory.appending(path: "session").path
         FileManager.default.createFile(atPath: socketPath, contents: nil)
 
+        let processInputPipe = Pipe()
+        var openPipeReadEnd: FileHandle? = processInputPipe.fileHandleForReading
+        var openPipeWriteEnd: FileHandle? = processInputPipe.fileHandleForWriting
+        defer {
+            if let openPipeWriteEnd { try? openPipeWriteEnd.close() }
+            if let openPipeReadEnd { try? openPipeReadEnd.close() }
+        }
         let controlledProcess = Process()
         controlledProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
-        controlledProcess.arguments = ["-c", "exit 0"]
+        controlledProcess.arguments = ["-c", "read _"]
+        controlledProcess.standardInput = processInputPipe
         controlledProcess.standardOutput = FileHandle.nullDevice
         controlledProcess.standardError = FileHandle.nullDevice
         try controlledProcess.run()
         let terminalPID = controlledProcess.processIdentifier
-        // Captured while the process is still resolvable -- observeColdStart
-        // itself never queries process state for this identity; only
-        // checkHandoff's scripted argv read does, below.
+        // The child is blocked on its input pipe, so its incarnation remains
+        // resolvable until the test closes the pipe's write end.
         let incarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: terminalPID))
+        if let pipeWriteEnd = openPipeWriteEnd {
+            openPipeWriteEnd = nil
+            try pipeWriteEnd.close()
+        }
         try await waitForRealProcessExit(pid: terminalPID)
+        if let pipeReadEnd = openPipeReadEnd {
+            openPipeReadEnd = nil
+            try pipeReadEnd.close()
+        }
 
         let syscalls = ScriptedSyscalls()
         syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
