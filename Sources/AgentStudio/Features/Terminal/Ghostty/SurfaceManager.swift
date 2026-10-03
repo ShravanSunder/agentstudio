@@ -195,6 +195,17 @@ package final class SurfaceManager {
 
     // MARK: - Surface Creation
 
+    /// F9 (review round 1): a restore command's trailing argument is the
+    /// startup attempt token (PD rev 21:162, "the token never reaches logs,
+    /// telemetry or OTLP"). Logs presence and length only -- never the
+    /// command text itself, which would leak it into this local diagnostic
+    /// trace. Extracted as a pure function so its redaction is a behavioral
+    /// unit-test assertion, not a source-text match that a differently
+    /// spelled regression could still pass.
+    nonisolated static func createSurfaceTraceMessage(metadata: SurfaceMetadata) -> String {
+        "SurfaceManager.createSurface begin pane=\(metadata.paneId?.uuidString ?? "nil") title=\(metadata.title) cwd=\(metadata.cwd?.path ?? "nil") cmdPresent=\(metadata.command != nil) cmdLength=\(metadata.command?.count ?? 0)"
+    }
+
     /// Create a new surface with configuration
     /// - Parameters:
     ///   - config: Ghostty surface configuration
@@ -208,9 +219,7 @@ package final class SurfaceManager {
             preconditionFailure("SurfaceManager requires an App command dispatcher before creating surfaces")
         }
 
-        RestoreTrace.log(
-            "SurfaceManager.createSurface begin pane=\(metadata.paneId?.uuidString ?? "nil") title=\(metadata.title) cwd=\(metadata.cwd?.path ?? "nil") cmd=\(metadata.command ?? "nil")"
-        )
+        RestoreTrace.log(Self.createSurfaceTraceMessage(metadata: metadata))
         var mutableConfig = config
 
         // Allow delegate to modify config

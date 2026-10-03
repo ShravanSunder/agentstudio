@@ -597,6 +597,14 @@ extension AppDelegate {
                 uniqueKeysWithValues: contentMountCohort.terminalActivationInput.entries.map { ($0.paneID, $0) }
             )
         )
+        // A1 (test technique amendment, Lead 2026-10-01): resolveRestoreKinds
+        // gained a second, default-valued parameter
+        // (observeDerivationExecutionContext), so the unapplied method
+        // reference `.resolveRestoreKinds(for:)` no longer resolves --
+        // Swift doesn't apply default arguments to an unapplied reference.
+        // Forward explicitly instead.
+        let terminalRestoreKindResolver = makeTerminalRestoreKindResolver(
+            sessionConfiguration: coordinator.sessionConfig)
         let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
             cohort: contentMountCohort,
             viewRegistry: viewRegistry,
@@ -608,9 +616,9 @@ extension AppDelegate {
             placeholderTransitionHandler: { [weak coordinator] pane, mode in
                 coordinator?.registerTerminalPlaceholderIfNeeded(for: pane, mode: mode)
             },
-            resolveTerminalRestoreKinds: makeTerminalRestoreKindResolver(
-                sessionConfiguration: coordinator.sessionConfig
-            ).resolveRestoreKinds(for:)
+            resolveTerminalRestoreKinds: { descriptors in
+                await terminalRestoreKindResolver.resolveRestoreKinds(for: descriptors)
+            }
         )
         installWorkspacePreparedContentMountOwners(
             InstalledWorkspacePreparedContentMountOwners(

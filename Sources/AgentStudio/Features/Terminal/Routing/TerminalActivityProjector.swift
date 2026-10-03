@@ -36,7 +36,14 @@ struct TerminalActivityCompactUpdate: Sendable, Equatable {
 
 enum TerminalActivityProjectionOutcome: Sendable, Equatable {
     case compactStateChanged(TerminalActivityCompactUpdate)
-    case firstOutput(surfaceID: UUID, paneID: UUID)
+    /// Named for what this actually is -- the pane's first scrollbar
+    /// sample with a positive row total, which Ghostty's own renderer
+    /// emits on its unconditional first frame (`PageList.zig:687`'s
+    /// viewport-sized `total_rows`, `scrollbar()` returning it with zero
+    /// scrollback, `Thread.zig:242-243`'s initial wakeup firing
+    /// independent of the IO thread that owns the PTY) -- never a claim
+    /// that the PTY has delivered a byte.
+    case firstRender(surfaceID: UUID, paneID: UUID)
     case paneObservationChanged(surfaceID: UUID, paneID: UUID, isPinnedToBottom: Bool)
     case unseenActivitySettled(surfaceID: UUID, paneID: UUID, activity: TerminalSettledActivity)
     case agentSettledActivityPromoted(surfaceID: UUID, paneID: UUID, activity: TerminalSettledActivity)
@@ -90,7 +97,7 @@ package actor TerminalActivityProjector {
     /// state that only the projector holds.
     typealias LastOutputLineReader = @MainActor @Sendable (_ surfaceID: UUID) -> TerminalViewportTextReadResult
 
-    private struct ActivityWindow: Sendable {
+    struct ActivityWindow: Sendable {
         let id: UUID
         let surfaceID: UUID
         let paneID: UUID
@@ -105,7 +112,7 @@ package actor TerminalActivityProjector {
         var generation: UInt64
     }
 
-    private struct ActivityWindowCloseTarget: Sendable {
+    struct ActivityWindowCloseTarget: Sendable {
         let windowID: UUID
         let surfaceID: UUID
         let paneID: UUID
@@ -130,12 +137,12 @@ package actor TerminalActivityProjector {
         }
     }
 
-    private struct PaneState {
+    struct PaneState {
         let surfaceID: UUID
         var outputBurst: TerminalOutputBurstState
         var scrollbarState: ScrollbarState?
         var isPinnedToBottom: Bool?
-        var didObserveFirstOutput = false
+        var didObserveFirstRender = false
         var unseenWindow: ActivityWindow?
         var activityWindow: ActivityWindow?
         var agentCandidate: ActivityWindow?
@@ -147,9 +154,13 @@ package actor TerminalActivityProjector {
         var hasReadableActivityBaseline = false
     }
 
-    private let unseenQuietDuration: Duration
-    private let agentSettledQuietDuration: Duration
-    private let delay: AsyncDelay
+    let unseenQuietDuration: Duration
+    let agentSettledQuietDuration: Duration
+    let deadlineClock: TerminalActivityDeadlineClock
+    let factSink: TerminalActivityProjectorFactSink?
+    var openDeadlineScopes: Set<TerminalActivityDeadlineScope> = []
+    var unseenDeadlineScopes: [UUID: TerminalActivityDeadlineScope] = [:]
+    var agentDeadlineScopes: [UUID: TerminalActivityDeadlineScope] = [:]
     private let nowMilliseconds: @Sendable () -> Int64
     private let continuousNow: @Sendable () -> ContinuousClock.Instant
     private let wallNow: @Sendable () -> Date
@@ -165,10 +176,10 @@ package actor TerminalActivityProjector {
     /// `.surfaceClosed` never does. The map drives the Panes-owned consumer
     /// gating inside `consumeAggregateState`.
     private var restorePhaseByPane: [UUID: RestoreGeneration] = [:]
-    private var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
-    private var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
-    private var unseenRetirementTasks: [UUID: Task<Void, Never>] = [:]
-    private var agentRetirementTasks: [UUID: Task<Void, Never>] = [:]
+    var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
+    var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
+    var unseenRetirementTasks: [UUID: Task<Void, Never>] = [:]
+    var agentRetirementTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
         unseenQuietDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
@@ -180,11 +191,13 @@ package actor TerminalActivityProjector {
         continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
         wallNow: @escaping @Sendable () -> Date = Date.init,
         activitySink: (@Sendable (PaneActivityOccurrence) -> Void)? = nil,
-        closeReadDurationSink: (@Sendable (Duration) -> Void)? = nil
+        closeReadDurationSink: (@Sendable (Duration) -> Void)? = nil,
+        factSink: TerminalActivityProjectorFactSink? = nil
     ) {
         self.unseenQuietDuration = unseenQuietDuration
         self.agentSettledQuietDuration = agentSettledQuietDuration
-        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
+        deadlineClock = TerminalActivityDeadlineClock(clock)
+        self.factSink = factSink
         self.nowMilliseconds = nowMilliseconds
         self.continuousNow = continuousNow
         self.wallNow = wallNow
@@ -357,8 +370,8 @@ package actor TerminalActivityProjector {
             state.agentCandidate = nil
         }
 
-        let isFirstOutput = aggregate.latestTotalRows > 0 && !state.didObserveFirstOutput
-        state.didObserveFirstOutput = state.didObserveFirstOutput || aggregate.latestTotalRows > 0
+        let isFirstRender = aggregate.latestTotalRows > 0 && !state.didObserveFirstRender
+        state.didObserveFirstRender = state.didObserveFirstRender || aggregate.latestTotalRows > 0
         paneStates[paneID] = state
         var outcomes: [TerminalActivityProjectionOutcome] = []
         if let replacedSurfaceID {
@@ -379,8 +392,8 @@ package actor TerminalActivityProjector {
                 )
             )
         }
-        if isFirstOutput, !isInRestorePhase {
-            outcomes.append(.firstOutput(surfaceID: surfaceID, paneID: paneID))
+        if isFirstRender, !isInRestorePhase {
+            outcomes.append(.firstRender(surfaceID: surfaceID, paneID: paneID))
         }
         for isPinnedToBottom in observationTransitions {
             outcomes.append(
@@ -551,6 +564,7 @@ package actor TerminalActivityProjector {
         let closeTasks = Array(unseenCloseTasks.values) + Array(agentCloseTasks.values)
         let retirementTasks = Array(unseenRetirementTasks.values) + Array(agentRetirementTasks.values)
         for task in closeTasks { task.cancel() }
+        closeAllDeadlineFacts()
         unseenCloseTasks.removeAll()
         agentCloseTasks.removeAll()
         unseenRetirementTasks.removeAll()
@@ -668,53 +682,11 @@ package actor TerminalActivityProjector {
         scheduleUnseenClose(for: paneID, state: state)
     }
 
-    private func scheduleUnseenClose(for paneID: UUID, state: PaneState) {
-        cancelUnseenWindow(for: paneID)
-        guard let window = state.unseenWindow ?? state.activityWindow else { return }
-        let delay = self.delay
-        let duration = unseenQuietDuration
-        let retirementTask = unseenRetirementTasks.removeValue(forKey: paneID)
-        let closeTarget = ActivityWindowCloseTarget(
-            windowID: window.id,
-            surfaceID: window.surfaceID,
-            paneID: window.paneID,
-            generation: window.generation,
-            unseenWindow: state.unseenWindow,
-            activityWindow: state.activityWindow
-        )
-        unseenCloseTasks[paneID] = Task { [weak self] in
-            await retirementTask?.value
-            guard !Task.isCancelled else { return }
-            do { try await delay.wait(duration) } catch { return }
-            await self?.closeUnseenWindow(target: closeTarget)
-        }
-    }
-
-    private func scheduleAgentClose(for paneID: UUID, state: PaneState) {
-        cancelAgentCandidate(for: paneID)
-        guard let candidate = state.agentCandidate else { return }
-        let delay = self.delay
-        let duration = agentSettledQuietDuration
-        let retirementTask = agentRetirementTasks.removeValue(forKey: paneID)
-        let closeTarget = ActivityWindowCloseTarget(
-            windowID: candidate.id,
-            surfaceID: candidate.surfaceID,
-            paneID: candidate.paneID,
-            generation: candidate.generation
-        )
-        agentCloseTasks[paneID] = Task { [weak self] in
-            await retirementTask?.value
-            guard !Task.isCancelled else { return }
-            do { try await delay.wait(duration) } catch { return }
-            await self?.closeAgentCandidate(target: closeTarget)
-        }
-    }
-
-    private func closeUnseenWindow(target: ActivityWindowCloseTarget) async {
-        guard !isRestorePhaseActive(paneID: target.paneID) else { return }
+    func closeUnseenWindow(target: ActivityWindowCloseTarget) async -> Bool {
+        guard !isRestorePhaseActive(paneID: target.paneID) else { return false }
         guard var state = paneStates[target.paneID],
             state.surfaceID == target.surfaceID
-        else { return }
+        else { return false }
         let unseenWindow = state.unseenWindow.flatMap { window in
             target.unseenWindow?.id == window.id && target.unseenWindow?.generation == window.generation
                 ? window : nil
@@ -723,18 +695,18 @@ package actor TerminalActivityProjector {
             target.activityWindow?.id == window.id && target.activityWindow?.generation == window.generation
                 ? window : nil
         }
-        guard unseenWindow != nil || activityWindow != nil else { return }
+        guard unseenWindow != nil || activityWindow != nil else { return false }
         unseenCloseTasks[target.paneID] = nil
         if unseenWindow != nil { state.unseenWindow = nil }
         if activityWindow != nil { state.activityWindow = nil }
         paneStates[target.paneID] = state
-        guard (unseenWindow?.rowsAdded ?? 0) > 0 || (activityWindow?.rowsAdded ?? 0) > 0 else { return }
+        guard (unseenWindow?.rowsAdded ?? 0) > 0 || (activityWindow?.rowsAdded ?? 0) > 0 else { return true }
         let readStartedAt = ContinuousClock.now
         let lastOutputLine = await resolveLastOutputLine(
             surfaceID: target.surfaceID,
             paneID: target.paneID
         )
-        guard !Task.isCancelled, !isRestorePhaseActive(paneID: target.paneID) else { return }
+        guard !Task.isCancelled, !isRestorePhaseActive(paneID: target.paneID) else { return false }
         closeReadDurationSink?(readStartedAt.duration(to: .now))
         if let unseenWindow, unseenWindow.rowsAdded > 0 {
             await emit([
@@ -749,10 +721,11 @@ package actor TerminalActivityProjector {
                 )
             ])
         }
+        return true
     }
 
-    private func closeAgentCandidate(target: ActivityWindowCloseTarget) async {
-        guard !isRestorePhaseActive(paneID: target.paneID) else { return }
+    func closeAgentCandidate(target: ActivityWindowCloseTarget) async -> Bool {
+        guard !isRestorePhaseActive(paneID: target.paneID) else { return false }
         guard var state = paneStates[target.paneID],
             state.surfaceID == target.surfaceID,
             let candidate = state.agentCandidate,
@@ -760,12 +733,12 @@ package actor TerminalActivityProjector {
             candidate.surfaceID == target.surfaceID,
             candidate.paneID == target.paneID,
             candidate.generation == target.generation
-        else { return }
+        else { return false }
         agentCloseTasks[target.paneID] = nil
         state.agentCandidate = nil
         guard isAgentSettledCandidate(candidate) else {
             paneStates[target.paneID] = state
-            return
+            return true
         }
         state.agentSettledLatestRows = candidate.latestRows
         paneStates[target.paneID] = state
@@ -773,7 +746,7 @@ package actor TerminalActivityProjector {
             surfaceID: candidate.surfaceID,
             paneID: target.paneID
         )
-        guard !Task.isCancelled, !isRestorePhaseActive(paneID: target.paneID) else { return }
+        guard !Task.isCancelled, !isRestorePhaseActive(paneID: target.paneID) else { return false }
         await emit([
             .agentSettledActivityPromoted(
                 surfaceID: candidate.surfaceID,
@@ -785,6 +758,7 @@ package actor TerminalActivityProjector {
                 )
             )
         ])
+        return true
     }
 
     /// Reads the literal trailing non-empty viewport line and applies unchanged-line suppression.
@@ -863,31 +837,6 @@ package actor TerminalActivityProjector {
             isPinnedToBottom: window.latestIsPinnedToBottom,
             lastOutputLine: lastOutputLine
         )
-    }
-
-    private func cancelTimers(for paneID: UUID) {
-        cancelUnseenWindow(for: paneID)
-        cancelAgentCandidate(for: paneID)
-    }
-
-    private func cancelUnseenWindow(for paneID: UUID) {
-        guard let closeTask = unseenCloseTasks.removeValue(forKey: paneID) else { return }
-        closeTask.cancel()
-        let precedingRetirementTask = unseenRetirementTasks[paneID]
-        unseenRetirementTasks[paneID] = Task {
-            await precedingRetirementTask?.value
-            await closeTask.value
-        }
-    }
-
-    private func cancelAgentCandidate(for paneID: UUID) {
-        guard let closeTask = agentCloseTasks.removeValue(forKey: paneID) else { return }
-        closeTask.cancel()
-        let precedingRetirementTask = agentRetirementTasks[paneID]
-        agentRetirementTasks[paneID] = Task {
-            await precedingRetirementTask?.value
-            await closeTask.value
-        }
     }
 
     private static func milliseconds(_ duration: Duration) -> Int {

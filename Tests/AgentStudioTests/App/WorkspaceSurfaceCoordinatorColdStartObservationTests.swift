@@ -65,6 +65,12 @@ struct ColdStartObservationWiringTests {
         func leaderState(of incarnation: ZmxProcessIncarnation) -> ColdStartLeaderState {
             .unverifiable(POSIXErrorNumber(ESRCH))
         }
+
+        // Never reached: openDirectoryForWatching's EACCES means no
+        // directory watch source -- and so no descriptor -- ever exists to
+        // close. R1 gate (Lead 2026-10-01, FAIL 1 fix 1): added when
+        // `ColdStartObserverSyscalls` gained this requirement.
+        func closeWatchedDirectory(_ descriptor: Int32) {}
     }
 
     private func vocabulary() -> FactVocabulary<UUID, ColdStartOutcome> {

@@ -14,16 +14,19 @@ import Foundation
 /// so this classification belongs at the App layer, where both are already
 /// visible.
 ///
-/// Not `@MainActor`: called from `mount()` (MainActor), it runs on
-/// MainActor throughout except for its leaf I/O calls
-/// (`probe.discoverSessionInventory()`, `probe.observeSessionIdentity(_:)`),
-/// which are `@concurrent nonisolated` on `ZmxBackend` and hop off-main for
-/// their own duration (SE-0461) — matching the Program Design's "What runs
-/// where": the derivation itself needs no actor, only the I/O does. Every
-/// `.alive` session's identity observation runs concurrently, bounded by
-/// `AppPolicies.Restore.maximumConcurrentIdentityObservations`; only the
-/// surrounding map/plan building (`resolveKind`, `buildColdPlan`) stays on
-/// MainActor.
+/// Not `@MainActor`: called from `mount()` (MainActor), `resolveRestoreKinds`
+/// itself only captures the one MainActor-only value this resolver needs
+/// (`repositoryMainFolder`'s per-pane read) before handing off to
+/// `resolveRestoreKindsOffMain`, `@concurrent nonisolated` (amended
+/// 2026-10-01, A1). Descriptor filtering, the alive-session fan-out,
+/// per-pane kind mapping and fallback-plan construction all run there,
+/// matching the Program Design's "What runs where": inventory -> restore
+/// kind, observation -> classification, and resume evidence all stay
+/// off-main; only pure command choice — `TerminalRestoreRuntime`'s own
+/// switch over an already-decided kind — is the MainActor allowance
+/// PD:464 means. Every `.alive` session's identity observation runs
+/// concurrently, bounded by
+/// `AppPolicies.Restore.maximumConcurrentIdentityObservations`.
 struct TerminalRestoreKindResolver: Sendable {
     private let sessionConfiguration: SessionConfiguration
     /// Nil when zmx couldn't be resolved at boot (`SessionConfiguration
@@ -49,41 +52,87 @@ struct TerminalRestoreKindResolver: Sendable {
 
     @MainActor
     func resolveRestoreKinds(
-        for descriptors: [TerminalActivationDescriptor]
+        for descriptors: [TerminalActivationDescriptor],
+        observeDerivationExecutionContext: @Sendable () -> Void = {}
     ) async -> [PaneId: TerminalRestoreKind] {
         guard sessionConfiguration.isOperational, let zmxPath = sessionConfiguration.zmxPath, let probe else {
             return [:]
         }
-        let zmxPanes: [(paneID: PaneId, pane: Pane, sessionID: ZmxSessionID)] = descriptors.compactMap { descriptor in
+        // A1 (advisor review 2026-10-01): thin MainActor boundary. The only
+        // value this resolver needs that actually requires MainActor is
+        // `repositoryMainFolder`'s own per-pane read -- captured here,
+        // upfront, before any I/O or derivation. Everything after this
+        // point (filtering, the identity fan-out, kind mapping, and
+        // fallback-plan construction) runs off-main in
+        // `resolveRestoreKindsOffMain`, matching the Program Design's "What
+        // runs where": inventory -> restore kind, observation ->
+        // classification, and resume evidence all stay off-main. The
+        // MainActor allowance at PD:464 is for pure command choice —
+        // `TerminalRestoreRuntime`'s own switch over an already-decided
+        // `TerminalRestoreKind` — not this classification.
+        let zmxPaneCaptures: [ZmxPaneCapture] = descriptors.compactMap { descriptor in
             guard descriptor.pane.provider == .zmx, let sessionID = descriptor.pane.terminalState?.zmxSessionID else {
                 return nil
             }
-            return (descriptor.paneID, descriptor.pane, sessionID)
+            return ZmxPaneCapture(
+                paneID: descriptor.paneID,
+                pane: descriptor.pane,
+                sessionID: sessionID,
+                repositoryMainFolder: repositoryMainFolder(descriptor.pane)
+            )
         }
-        guard !zmxPanes.isEmpty else { return [:] }
+        guard !zmxPaneCaptures.isEmpty else { return [:] }
 
+        return await resolveRestoreKindsOffMain(
+            zmxPaneCaptures: zmxPaneCaptures, zmxPath: zmxPath, probe: probe,
+            observeDerivationExecutionContext: observeDerivationExecutionContext)
+    }
+
+    /// A1: the derivation itself needs no actor — only the leaf probe I/O
+    /// does (`discoverSessionInventory`, `observeSessionIdentity`, already
+    /// `@concurrent nonisolated` on `ZmxBackend`). `@concurrent nonisolated`
+    /// escapes this entire stage off `resolveRestoreKinds`'s MainActor
+    /// caller (SE-0461), matching `ColdStartObserver.attemptDiscoveryConnect`'s
+    /// own pattern. `probe` is already unwrapped by the caller; `self` is
+    /// `Sendable`, so its plain (non-MainActor) `resolveKind`/`buildColdPlan`
+    /// are safely reachable from here.
+    ///
+    /// `observeDerivationExecutionContext` (test technique amendment, Lead
+    /// 2026-10-01): a no-op in production, called immediately before the
+    /// per-pane mapping loop so a test can record its real execution
+    /// context (e.g. `Thread.isMainThread`) as a structural fact instead of
+    /// racing this call against other MainActor work — the repo's own rule
+    /// against a verdict that depends on machine speed.
+    @concurrent nonisolated private func resolveRestoreKindsOffMain(
+        zmxPaneCaptures: [ZmxPaneCapture],
+        zmxPath: String,
+        probe: any ZmxSessionRestoreProbing,
+        observeDerivationExecutionContext: @Sendable () -> Void = {}
+    ) async -> [PaneId: TerminalRestoreKind] {
         let inventory = await probe.discoverSessionInventory()
-        let aliveSessionIDs: [ZmxSessionID] = zmxPanes.compactMap { entry in
+        let aliveSessionIDs: [ZmxSessionID] = zmxPaneCaptures.compactMap { capture in
             guard case .complete(let entriesBySessionID) = inventory,
-                case .alive = entriesBySessionID[entry.sessionID]
+                case .alive = entriesBySessionID[capture.sessionID]
             else {
                 return nil
             }
-            return entry.sessionID
+            return capture.sessionID
         }
         let observedIdentitiesBySessionID = await Self.observeIdentitiesConcurrently(
             sessionIDs: aliveSessionIDs,
             probe: probe
         )
 
+        observeDerivationExecutionContext()
         var restoreKindsByPaneID: [PaneId: TerminalRestoreKind] = [:]
-        for entry in zmxPanes {
-            restoreKindsByPaneID[entry.paneID] = await resolveKind(
-                pane: entry.pane,
-                sessionID: entry.sessionID,
+        for capture in zmxPaneCaptures {
+            restoreKindsByPaneID[capture.paneID] = await resolveKind(
+                pane: capture.pane,
+                sessionID: capture.sessionID,
                 inventory: inventory,
                 zmxPath: zmxPath,
-                observedIdentity: observedIdentitiesBySessionID[entry.sessionID]
+                repositoryMainFolder: capture.repositoryMainFolder,
+                observedIdentity: observedIdentitiesBySessionID[capture.sessionID]
             )
         }
         return restoreKindsByPaneID
@@ -131,45 +180,44 @@ struct TerminalRestoreKindResolver: Sendable {
         return identitiesBySessionID
     }
 
-    @MainActor
+    /// A1: no longer `@MainActor` — `repositoryMainFolder` is now a
+    /// pre-captured value (`ZmxPaneCapture`'s own field), not the
+    /// MainActor-only closure, so this classification runs off-main inside
+    /// `resolveRestoreKindsOffMain`.
     private func resolveKind(
         pane: Pane,
         sessionID: ZmxSessionID,
         inventory: ZmxSessionInventory,
         zmxPath: String,
+        repositoryMainFolder: URL?,
         observedIdentity: Data?
     ) async -> TerminalRestoreKind {
-        let plan = await buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath)
+        let plan = await buildColdPlan(
+            pane: pane, sessionID: sessionID, zmxPath: zmxPath, repositoryMainFolder: repositoryMainFolder)
         switch inventory {
         case .unavailable(let failure):
-            return .unverified(
-                .inventoryUnavailable(failure),
-                fallback: plan)
+            return .unverified(.inventoryUnavailable(failure), fallback: plan)
         case .complete(let entriesBySessionID):
             switch entriesBySessionID[sessionID] {
             case .alive:
                 guard let observedIdentity else {
-                    return .unverified(
-                        .warmIdentityUnobservable,
-                        fallback: plan)
+                    return .unverified(.warmIdentityUnobservable, fallback: plan)
                 }
-                return .warm(
-                    identity: observedIdentity,
-                    fallback: plan)
+                return .warm(identity: observedIdentity, fallback: plan)
             case .refused, nil:
                 // Absent from a complete inventory, or refused: both are
                 // proof of death (SR2), never merely unseen.
                 return .cold(plan)
             case .unresponsive:
-                return .unverified(
-                    .sessionUnresponsive,
-                    fallback: plan)
+                return .unverified(.sessionUnresponsive, fallback: plan)
             }
         }
     }
 
-    @MainActor
-    private func buildColdPlan(pane: Pane, sessionID: ZmxSessionID, zmxPath: String) async -> TerminalColdRestorePlan {
+    /// A1: no longer `@MainActor` — see `resolveKind`'s own note.
+    private func buildColdPlan(
+        pane: Pane, sessionID: ZmxSessionID, zmxPath: String, repositoryMainFolder: URL?
+    ) async -> TerminalColdRestorePlan {
         await TerminalColdRestorePlanBuilder.buildPlan(
             pane: pane,
             sessionID: sessionID,
@@ -177,8 +225,19 @@ struct TerminalRestoreKindResolver: Sendable {
                 zmxExecutablePath: zmxPath,
                 zmxDirectoryPath: sessionConfiguration.zmxDir,
                 loginShellPath: SessionConfiguration.defaultShell()),
-            repositoryMainFolder: repositoryMainFolder(pane),
+            repositoryMainFolder: repositoryMainFolder,
             scrollbackStore: scrollbackStore
         )
     }
+}
+
+/// A1: one zmx-provider pane's MainActor-only values, captured at
+/// `resolveRestoreKinds`'s thin boundary before the rest of the resolution
+/// moves off-main. `Sendable` so it can cross into
+/// `resolveRestoreKindsOffMain`'s `@concurrent nonisolated` context.
+private struct ZmxPaneCapture: Sendable {
+    let paneID: PaneId
+    let pane: Pane
+    let sessionID: ZmxSessionID
+    let repositoryMainFolder: URL?
 }
