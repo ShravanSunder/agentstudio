@@ -116,6 +116,96 @@ struct ForegroundProbeClassificationTests {
         #expect(result == .unknown)
     }
 
+    @Test(
+        "a neighbouring pane's failed foreground row is attributed only to that pane",
+        arguments: [false, true])
+    func neighbourReadFailurePreservesAgentPane(unreadable: Bool) throws {
+        let leaderA = foregroundTestProcess(pid: 4100)
+        let leaderB = foregroundTestProcess(pid: 5100)
+        let pass = try DarwinTerminalForegroundProbe.attributeSamples(
+            rows: attributionRows(), requestedLeaderPids: [leaderA.pid, leaderB.pid]
+        ) { pid, readArguments in
+            if pid == 5200 { return unreadable ? .unreadable : .vanished }
+            return .sample(try attributionSample(pid: pid, readArguments: readArguments))
+        }
+        let resultA = DarwinTerminalForegroundProbe.classify(
+            leader: leaderA, samples: pass.samples, incompleteLeaders: pass.incompleteLeaders,
+            leadersWithVanishedRows: pass.leadersWithVanishedRows)
+        let resultB = DarwinTerminalForegroundProbe.classify(
+            leader: leaderB, samples: pass.samples, incompleteLeaders: pass.incompleteLeaders,
+            leadersWithVanishedRows: pass.leadersWithVanishedRows)
+        let expectedIncomplete: Set<Int32> = unreadable ? [leaderB.pid] : []
+        let expectedVanished: Set<Int32> = unreadable ? [] : [leaderB.pid]
+
+        #expect(resultA == .claudeCode)
+        #expect(resultB == .unknown)
+        #expect(pass.incompleteLeaders == expectedIncomplete)
+        #expect(pass.leadersWithVanishedRows == expectedVanished)
+    }
+
+    @Test("regrouping a requested leader invalidates only that pane's native pass")
+    func regroupedLeaderDoesNotInvalidateNeighbour() throws {
+        let leaderA = foregroundTestProcess(pid: 4100)
+        let leaderB = foregroundTestProcess(pid: 5100)
+        let pass = try DarwinTerminalForegroundProbe.attributeSamples(
+            rows: attributionRows(), requestedLeaderPids: [leaderA.pid, leaderB.pid]
+        ) { pid, readArguments in
+            if pid == leaderA.pid {
+                return .sample(foregroundTestSample(process: leaderA, group: 4300, foregroundGroup: 4200, argv0: ""))
+            }
+            return .sample(try attributionSample(pid: pid, readArguments: readArguments))
+        }
+        let resultA = DarwinTerminalForegroundProbe.classify(
+            leader: leaderA, samples: pass.samples, incompleteLeaders: pass.incompleteLeaders,
+            leadersWithVanishedRows: pass.leadersWithVanishedRows)
+        let resultB = DarwinTerminalForegroundProbe.classify(
+            leader: leaderB, samples: pass.samples, incompleteLeaders: pass.incompleteLeaders,
+            leadersWithVanishedRows: pass.leadersWithVanishedRows)
+
+        #expect(pass.incompleteLeaders == [leaderA.pid])
+        #expect(pass.leadersWithVanishedRows.isEmpty)
+        #expect(resultA == .unknown)
+        #expect(resultB == .codex)
+    }
+
+    @Test("a requested leader missing from ps makes only that pane incomplete")
+    func missingLeaderDoesNotInvalidatePresentPane() throws {
+        let leaderA = foregroundTestProcess(pid: 4100)
+        let leaderB = foregroundTestProcess(pid: 5100)
+        // Keep A's readable agent alongside one vanished foreground sibling:
+        // B's missing leader must not inherit even A's vanished-row attribution.
+        let rows = attributionRows().filter { $0.pid != leaderB.pid } + [(4201, 4200, 4200)]
+        let pass = try DarwinTerminalForegroundProbe.attributeSamples(
+            rows: rows, requestedLeaderPids: [leaderA.pid, leaderB.pid]
+        ) { pid, readArguments in
+            #expect(pid != 5200, "without B's leader row its foreground group cannot authorize an argv read")
+            if pid == 4201 { return .vanished }
+            return .sample(try attributionSample(pid: pid, readArguments: readArguments))
+        }
+        let resultA = DarwinTerminalForegroundProbe.classify(
+            leader: leaderA, samples: pass.samples, incompleteLeaders: pass.incompleteLeaders,
+            leadersWithVanishedRows: pass.leadersWithVanishedRows)
+        let resultB = DarwinTerminalForegroundProbe.classify(
+            leader: leaderB, samples: pass.samples, incompleteLeaders: pass.incompleteLeaders,
+            leadersWithVanishedRows: pass.leadersWithVanishedRows)
+
+        #expect(pass.incompleteLeaders == [leaderB.pid])
+        #expect(pass.leadersWithVanishedRows == [leaderA.pid])
+        #expect(resultA == .claudeCode)
+        #expect(resultB == .unknown)
+    }
+
+    private func attributionRows() -> [(pid: Int32, group: Int32, foreground: Int32)] {
+        [(4100, 4100, 4200), (4200, 4200, 4200), (5100, 5100, 5200), (5200, 5200, 5200)]
+    }
+
+    private func attributionSample(pid: Int32, readArguments: Bool) throws -> ForegroundProcessSample {
+        let row = try #require(attributionRows().first { $0.pid == pid })
+        let argv0 = readArguments ? (pid == 4200 ? "claude" : "codex") : ""
+        return foregroundTestSample(
+            process: foregroundTestProcess(pid: pid), group: row.group, foregroundGroup: row.foreground, argv0: argv0)
+    }
+
     @Test("one ps pass serves every requested pane and retains only typed process identity")
     func onePassClassifiesSeveralSessions() async throws {
         let firstId = ZmxSessionID.generateUUIDv7()

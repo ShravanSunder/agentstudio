@@ -145,6 +145,17 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
         guard rows.count == lines.count else {
             return .init(samples: [], incompleteLeaders: leaderIds, leadersWithVanishedRows: [])
         }
+        return try attributeSamples(rows: rows, requestedLeaderPids: leaderIds) { pid, readArguments in
+            try Task.checkCancellation()
+            return readNativeSample(pid: pid, readArguments: readArguments)
+        }
+    }
+
+    /// Attributes one parsed pass's native read outcomes to only the leaders that own each row.
+    package static func attributeSamples(
+        rows: [(pid: Int32, group: Int32, foreground: Int32)], requestedLeaderPids leaderIds: Set<Int32>,
+        readSample: (Int32, Bool) throws -> NativeSampleReadResult
+    ) rethrows -> ForegroundPsPass {
         var foregroundGroupsByLeader: [Int32: Int32] = [:]
         for row in rows where leaderIds.contains(row.pid) && row.foreground > 0 {
             foregroundGroupsByLeader[row.pid] = row.foreground
@@ -155,11 +166,10 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
         var leadersWithVanishedRows: Set<Int32> = []
         var samples: [ForegroundProcessSample] = []
         for row in selected {
-            try Task.checkCancellation()
             let affectedLeaders = leaderIds.filter {
                 $0 == row.pid || foregroundGroupsByLeader[$0] == row.group
             }
-            switch readNativeSample(pid: row.pid, readArguments: foregroundGroups.contains(row.group)) {
+            switch try readSample(row.pid, foregroundGroups.contains(row.group)) {
             case .sample(let sample):
                 // A group change invalidates only the leaders that own this row.
                 guard sample.processGroupId == row.group, sample.foregroundGroupId == row.foreground else {
@@ -179,7 +189,7 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
             leadersWithVanishedRows: leadersWithVanishedRows)
     }
 
-    private enum NativeSampleReadResult {
+    package enum NativeSampleReadResult: Sendable {
         case sample(ForegroundProcessSample)
         case vanished
         case unreadable
