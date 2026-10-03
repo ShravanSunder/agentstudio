@@ -1,6 +1,6 @@
 # Enable pane agents: how it is built
 
-Date: 2026-10-02. **Revision 27** (owner, 2026-10-02): choice 4 now leads with agents finding their way through `help` and `--help` (Spec R33). Discovery drops rev 26's catalog digest, because the CLI ships in the app bundle and is always the same build. There's no client re-check and discovery gets 500 ms. The digest, cache and filter wait for the Studio service design. **Revision 26** (owner, 2026-10-02): two changes to choice 4. Discovery is identified by a catalog digest, with a name filter, a one-row CLI-store cache and no client re-validation, and it comes within the 250 ms budget. Every hook verb is silent: no stdout, no stderr in normal operation, exit 0.
+Date: 2026-10-03. **Revision 28** (Lead, 2026-10-03): three delivery decisions from the fast CLI round-1 review, anchored on `fast-cli-store` at 5a921b816. First, `--reload-catalog` is removed, because the catalog is fixed per runtime and the CLI is the same build. Second, a brand-new CLI store is created atomically under a private name and published with an exclusive rename. Third, opening and migrating the store gets a first-open busy budget of at most 1 s within the call total; notice writes and purges keep 50 ms. Storage contents, ownership and the single-writer rule are unchanged. **Revision 27** (owner, 2026-10-02): choice 4 now leads with agents finding their way through `help` and `--help` (Spec R33). Discovery drops rev 26's catalog digest, because the CLI ships in the app bundle and is always the same build. There's no client re-check and discovery gets 500 ms. The digest, cache and filter wait for the Studio service design. **Revision 26** (owner, 2026-10-02): two changes to choice 4. Discovery is identified by a catalog digest, with a name filter, a one-row CLI-store cache and no client re-validation, and it comes within the 250 ms budget. Every hook verb is silent: no stdout, no stderr in normal operation, exit 0.
 
 **Revision 25** (owner, 2026-10-02): link removal ships without agent notification for now (Spec R19 deferred). Gaps item 4 is rewritten: no removal facts are consumed, and the replay request to Bridge is withdrawn.
 
@@ -172,8 +172,10 @@ Nothing computes on the main thread.
        (the effective wait) and `wasClamped`.
      - The advertised schema has no maximum.
    - **Discovery is explicit only:** `system.capabilities`, `command.list`
-     and `agentstudio help --live`. A `--reload-catalog` flag asks the app to
-     rebuild its catalog on demand.
+     and `agentstudio help --live`. There's no `--reload-catalog` flag (rev 28).
+     The app's catalog is fixed for the life of its runtime, and the CLI is the
+     same build, so a reload could only re-fetch the same bytes. Rebuilding the
+     catalog on demand waits for the Studio service design.
    - **Discovery (rev 27; owner, 2026-10-02; Spec R31).** The CLI ships
      inside the app bundle (`Contents/Helpers/agentstudio`), and an agent calls
      its own app's copy through `AGENTSTUDIO_CLI`, so the CLI and the app are
@@ -263,6 +265,23 @@ Nothing computes on the main thread.
      - Only `agentstudio` processes write, migrate and purge this file. Many
        short-lived CLI processes share SQLite's write lock (WAL, the 50 ms busy
        timeout, fail open).
+     - **A brand-new store is created atomically (rev 28).**
+       - Why: two CLI processes could both find the file missing. Switching a
+         shared fresh file to WAL can then return `SQLITE_BUSY` at once,
+         without calling the busy handler (SQLite does this to avoid
+         deadlock), and one of them would lose its notice.
+       - How: each creator builds a complete store under a private name: WAL,
+         `synchronous=FULL`, migrations and identity, then a TRUNCATE
+         checkpoint and close. It then publishes with an exclusive rename. The
+         loser opens the winner's store, and an existing store never changes
+         journal mode.
+       - The creator turns off persistent WAL on its private connection only,
+         so nothing private is left behind. The published store keeps Apple
+         SQLite's default of persistent `-wal`/`-shm`, which the app's
+         read-only opener needs.
+       - Between the rename and the first writer access, a read-only open may
+         be refused. It can never see a partial store, and no notice can exist
+         yet in that window.
      - The app opens the file **read-only** (GRDB `readonly`). In WAL mode it
        still takes shared read locks, but never the write lock, so a hook never
        waits on the app.
@@ -606,7 +625,12 @@ On timeout the call ends as one of two typed outcomes, never a guess:
   queued (Spec R31), and nothing is granted. A hook exits 0 so the provider
   continues. A verb exits with the `outcomeUnknown` code.
 
-Store access has its own short busy timeout (50 ms), inside the same total.
+Store access has its own short busy timeout (50 ms) for notice writes and
+purges. Opening and migrating the store waits for the smaller of the remaining
+call budget and `CLIStorePolicy.firstOpenMigrationLockWaitCap` (1 s), so a
+first open behind another process's migration doesn't drop its notice (rev
+28). Both waits stay inside the same total; an exhausted budget fails as a
+typed busy result and the hook still fails open.
 
 ## Writers and write numbers
 
