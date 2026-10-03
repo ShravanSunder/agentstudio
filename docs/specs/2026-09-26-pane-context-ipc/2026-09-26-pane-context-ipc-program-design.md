@@ -1,6 +1,8 @@
 # Enable pane agents: how it is built
 
-Date: 2026-10-02. **Revision 25** (owner, 2026-10-02): link removal ships without agent notification for now (Spec R19 deferred). Gaps item 4 is rewritten: no removal facts are consumed, and the replay request to Bridge is withdrawn.
+Date: 2026-10-02. **Revision 26** (owner, 2026-10-02): two changes to choice 4. Discovery is identified by a catalog digest, with a name filter, a one-row CLI-store cache and no client re-validation, and it comes within the 250 ms budget. Every hook verb is silent: no stdout, no stderr in normal operation, exit 0.
+
+**Revision 25** (owner, 2026-10-02): link removal ships without agent notification for now (Spec R19 deferred). Gaps item 4 is rewritten: no removal facts are consumed, and the replay request to Bridge is withdrawn.
 
 **Revision 24** records two decisions from 2026-10-02:
 - the fast CLI's light index is realized as one typed-entry inventory, shared by the app's full catalog and the CLI's on-demand resolver (choice 4; built on `fast-cli-store`);
@@ -131,6 +133,13 @@ Nothing computes on the main thread.
        model-call prefix, and builds only that method plus `auth.login`. An
        unknown name is refused before anything is built. A hook builds
        `auth.login` and `session.event` and nothing else.
+     - **A hook is silent (rev 26; owner, 2026-10-02; Spec R6).** Every hook
+       verb writes nothing to stdout, because Claude Code feeds a SessionStart
+       hook's stdout to the model. It writes nothing to stderr in normal
+       operation and always exits 0. That holds whether the app is up, down,
+       slow or refusing, and outside a pane, where it returns at once without a
+       pane token. Diagnostics go to the CLI's own log or record, never to the
+       provider. Proof is a process-level test over every hook verb.
      - **Help:** the overview reads names and summaries straight from the
        entries. `METHOD --help` builds only that method's parameter schema.
      - **Hard cutover:** the old eager CLI admission path
@@ -165,6 +174,57 @@ Nothing computes on the main thread.
    - **Discovery is explicit only:** `system.capabilities`, `command.list`
      and `agentstudio help --live`. A `--reload-catalog` flag asks the app to
      rebuild its catalog on demand.
+   - **Discovery by catalog digest (rev 26; owner, 2026-10-02; Spec R31).**
+     The CLI and the app used to share only the fixed label
+     `catalogIdentifier: "agentstudio-ipc-v2"`
+     (`IPCMethodCatalogResult.swift:4-7`), which doesn't change when a method
+     does. That's why discovery re-fetched the whole catalog and re-checked
+     every schema; client `IPCValidatedJSONSchema.normalize` was about 77% of
+     the 1.45 s p95.
+     - **The digest.** `IPCCatalogDigest` is the SHA-256 (hex) of the
+       canonical encoded `IPCMethodCatalogResult`: methods sorted by name, and
+       `JSONEncoder` with `.sortedKeys`. Those are the exact bytes
+       `system.capabilities` serves. The app and the CLI compute it through
+       the same composition over `IPCBuiltInMethodIndex`, so two builds of the
+       same source agree, and any change to a method, schema or summary
+       changes it. Builds whose inventories differ never match and take the
+       fetch path.
+     - **The app** computes it once when it composes its catalog (the cached
+       encoded bytes from S6c), and again on `--reload-catalog`. It writes
+       `catalogDigest` into the runtime metadata file the CLI already reads to
+       find the socket (`AgentStudioIPCClientRuntimeMetadata`). `system.identify`
+       also returns it.
+     - **The CLI**, for `system.capabilities [--filter <prefix>]` and
+       `help --live`:
+       1. It reads the app's digest from the metadata file. That read already
+          happens, so it costs no extra I/O.
+       2. It composes its own catalog from the inventory and hashes it. If the
+          digests are equal, it answers from its own catalog and makes no
+          connection.
+       3. If they differ, it fetches the app's bytes once and checks their
+          SHA-256 against the advertised digest; a mismatch is refused as
+          `catalogIntegrityFailed`. It prints them **without** client
+          re-validation, because the app validated them when it composed them
+          and the digest proves they're unchanged. It then keeps them in the CLI
+          store under that digest. The next call against the same digest
+          answers from the store.
+       4. `--filter <prefix>` keeps the methods whose name starts with the
+          prefix. The result shape is the same.
+     - **Store.** It's one CLI-store table, `cli_catalog_cache(catalog_digest
+       TEXT PRIMARY KEY, catalog_bytes BLOB NOT NULL, fetched_at TEXT NOT
+       NULL)`. It holds current state, the CLI is its only writer, and it has
+       at most one row: a new digest replaces the old one. It has no `CHECK`
+       and no trigger, and arrives in an additive migration. If the store is
+       unavailable, the CLI fetches every time, fails open and writes nothing.
+     - **Naming a mismatch.** When the app refuses a method as unknown and the
+       digests differ, the CLI's refusal names both short digests (first 8)
+       and points to `agentstudio system.capabilities`. A normal call adds no
+       other step.
+     - **Hard cutover.** The client re-validation of a fetched catalog is
+       removed. The app remains the authority, and the digest is the
+       integrity check.
+     - **Budget.** Discovery is held to the same ≤ 250 ms p95 as other verbs,
+       with no exemption.
    - **Budget:** p95 of `cli.call_total_ms` (process start to exit) on a warm
      debug app, measured over 50 calls: ≤ 150 ms for hook verbs and
      `line`/`title`/`notify`, ≤ 250 ms for other verbs.
