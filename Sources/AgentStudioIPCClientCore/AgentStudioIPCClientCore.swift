@@ -129,27 +129,8 @@ package struct AgentStudioIPCClient: Sendable {
         }
     }
 
-    package func discoverCommands(requestID: Int = 1) throws -> IPCCommandCatalogResult {
-        let result = try callDiscovery(method: "command.list", requestID: requestID)
-        do {
-            let catalog = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: result)
-            _ = try IPCCommandCatalogResult.normalizeDiscoveryResult(result, catalog: catalog)
-            guard Set(catalog.commands.map(\.id)).count == catalog.commands.count else {
-                throw failure(.deliveryUncertain, .invalidTypedResult)
-            }
-            for command in catalog.commands {
-                let reconstructed = try IPCCommandDescriptorFactory.make(
-                    .init(
-                        id: command.id, title: command.title, description: command.description,
-                        exposure: command.exposure,
-                        executionMode: command.executionMode, argumentVariants: command.argumentVariants,
-                        requiredPrivileges: Set(command.requiredPrivileges), dataScope: command.dataScope,
-                        allowedTargetKinds: Set(command.allowedTargetKinds), resultVariants: command.resultVariants,
-                        examples: command.examples, agentEligibility: command.agentEligibility))
-                guard reconstructed == command else { throw failure(.deliveryUncertain, .invalidTypedResult) }
-            }
-            return catalog
-        } catch { throw failure(.deliveryUncertain, .invalidTypedResult) }
+    package func discoverCommandBytes(requestID: Int = 1) throws -> Data {
+        try callDiscovery(method: "command.list", requestID: requestID)
     }
 
     /// Both explicit discovery methods share the same authenticated exchange.

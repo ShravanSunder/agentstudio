@@ -3,76 +3,40 @@ import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import Dispatch
 import Foundation
 import Testing
 
 @Suite("Live dynamic command ClientCore integration", .serialized)
 struct AppIPCDynamicCommandClientTests {
-    @Test("ClientCore discovers lists and executes one live typed command")
-    func clientDiscoversListsAndExecutesTypedCommand() async throws {
+    @Test("ClientCore lists served bytes and executes the raw envelope without a discovered invocation builder")
+    func clientListsAndExecutesRawCommand() async throws {
         try await DynamicCommandScenario.withScope(body: { scenario in
             try scenario.fixture.server.start()
+            let descriptors = try IPCCompiledInvocationResolver().resolve(
+                arguments: ["command.execute"], authenticated: false,
+                inputs: .init(examples: .init(illustrativeIdentifier: scenario.correlationId)))
             let client = AgentStudioIPCClient(
-                configuration: AgentStudioIPCClientConfiguration(socketPath: scenario.fixture.paths.socketURL.path),
-                descriptors: []
-            )
-
-            let methodCatalog = try await client.discoverCatalogWithoutBlockingCooperativePool(requestID: 10)
-            let discovery = try IPCCommandDiscovery(methodCatalog: methodCatalog)
-            let listResponse = try requireSuccess(
-                try await client.callWithoutBlockingCooperativePool(
-                    discovery.commandListInvocation, requestID: 20))
-            let commandCatalog = try discovery.decodeCommandCatalog(from: listResponse.normalizedResult)
-            let invocation = try commandCatalog.makeInvocation(
-                commandId: scenario.commandId,
-                correlationId: scenario.correlationId,
-                arguments: .noArguments
-            )
-            let executeResponse = try requireSuccess(
+                configuration: .init(socketPath: scenario.fixture.paths.socketURL.path), descriptors: descriptors)
+            let bytes = try await valueFromDedicatedThread { try client.discoverCommandBytes(requestID: 20) }
+            let commands = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: bytes)
+            #expect(commands.commands.contains { $0.id == scenario.commandId })
+            let descriptor = try #require(descriptors.first { $0.metadata.name == "command.execute" })
+            let request = IPCRawCommandExecutionRequest(
+                commandId: scenario.commandId, correlationId: scenario.correlationId, arguments: [:])
+            let invocation = try IPCDescriptorInvocation(
+                descriptor: descriptor,
+                normalizedParameters: descriptor.normalizeParameters(JSONEncoder().encode(request)),
+                presentation: .tooling)
+            let response = try requireSuccess(
                 try await client.callWithoutBlockingCooperativePool(invocation, requestID: 30))
-            let result = try commandCatalog.decodeResult(executeResponse.normalizedResult, for: invocation)
-
-            #expect(methodCatalog.methods.contains { $0.name == "command.list" })
-            #expect(methodCatalog.methods.contains { $0.name == "command.execute" })
+            let result = try JSONDecoder().decode(IPCCommandExecutionResult.self, from: response.normalizedResult.data)
             #expect(result.commandId == scenario.commandId)
             #expect(result.correlationId == scenario.correlationId)
             #expect(scenario.commandPort.receivedExecutionRequests.count == 1)
             #expect(scenario.commandPort.receivedExecutionRequests.first?.commandId == scenario.commandId)
             #expect(scenario.commandPort.receivedExecutionRequests.first?.correlationId == scenario.correlationId)
-        })
-    }
-
-    @Test("unknown identity and wrong variant are refused before the command port")
-    func discoveryRefusesUnknownIdentityAndWrongVariantBeforePort() async throws {
-        try await DynamicCommandScenario.withScope(body: { scenario in
-            try scenario.fixture.server.start()
-            let client = AgentStudioIPCClient(
-                configuration: AgentStudioIPCClientConfiguration(socketPath: scenario.fixture.paths.socketURL.path),
-                descriptors: []
-            )
-            let discovery = try IPCCommandDiscovery(
-                methodCatalog: try await client.discoverCatalogWithoutBlockingCooperativePool())
-            let listResponse = try requireSuccess(
-                try await client.callWithoutBlockingCooperativePool(
-                    discovery.commandListInvocation, requestID: 10))
-            let commandCatalog = try discovery.decodeCommandCatalog(from: listResponse.normalizedResult)
-
-            #expect(throws: IPCCommandDiscoveryError.self) {
-                _ = try commandCatalog.makeInvocation(
-                    commandId: IPCCommandIdentifier(rawValue: "futureCommand"),
-                    correlationId: UUIDv7.generate(),
-                    arguments: .noArguments
-                )
-            }
-            #expect(throws: IPCCommandDiscoveryError.self) {
-                _ = try commandCatalog.makeInvocation(
-                    commandId: scenario.commandId,
-                    correlationId: UUIDv7.generate(),
-                    arguments: .repository(IPCRepositoryCommandArguments(repoId: UUIDv7.generate()))
-                )
-            }
-            #expect(scenario.commandPort.receivedExecutionRequests.isEmpty)
         })
     }
 
@@ -86,16 +50,13 @@ struct AppIPCDynamicCommandClientTests {
                     configuration: AgentStudioIPCClientConfiguration(socketPath: scenario.fixture.paths.socketURL.path),
                     descriptors: []
                 )
-                let discovery = try IPCCommandDiscovery(
-                    methodCatalog: try await client.discoverCatalogWithoutBlockingCooperativePool())
-                let listResponse = try requireSuccess(
-                    try await client.callWithoutBlockingCooperativePool(discovery.commandListInvocation))
-                let commandCatalog = try discovery.decodeCommandCatalog(from: listResponse.normalizedResult)
-                let invocation = try commandCatalog.makeInvocation(
-                    commandId: scenario.commandId,
-                    correlationId: scenario.correlationId,
-                    arguments: .noArguments
-                )
+                let descriptor = try IPCAnyMethodDescriptor(erasing: IPCCommandMethodComposition.compiledExecute())
+                let request = IPCRawCommandExecutionRequest(
+                    commandId: scenario.commandId, correlationId: scenario.correlationId, arguments: [:])
+                let invocation = try IPCDescriptorInvocation(
+                    descriptor: descriptor,
+                    normalizedParameters: descriptor.normalizeParameters(JSONEncoder().encode(request)),
+                    presentation: .tooling)
 
                 switch try await client.callWithoutBlockingCooperativePool(invocation, requestID: 40) {
                 case .success:

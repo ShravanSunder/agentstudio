@@ -21,12 +21,21 @@ enum IPCDescriptorCLIHelp {
     }
 
     static func overview(index: IPCBuiltInMethodIndex) -> String {
-        let methods = index.entries.map {
+        let staticMethods = index.entries.map {
             "  \($0.name) — \($0.summary)  [agent: \(agentLabel($0.agentEligibility))]"
         }
+        let composedMethods = index.compositionHelp.map { projection in
+            let access: String
+            switch projection.agentAccess {
+            case .readOnly: access = "read-only"
+            case .selectedCommand: access = "conditional on selected command"
+            }
+            return "  \(projection.name) — \(projection.summary)  [agent: \(access)]"
+        }
+        let methods = (staticMethods + composedMethods).sorted()
         return
             ([
-                "Usage: agentstudio [--socket PATH | --metadata PATH] [--token-stdin] [--reload-catalog] METHOD [OPTIONS]",
+                "Usage: agentstudio [--socket PATH | --metadata PATH] [--token-stdin] METHOD [OPTIONS]",
                 "       agentstudio METHOD --help",
                 "       agentstudio help [--live]",
                 "Methods:",
@@ -37,10 +46,10 @@ enum IPCDescriptorCLIHelp {
             ]).joined(separator: "\n")
     }
 
-    static func liveCommands(_ commands: [IPCCommandDescriptor]) -> String {
+    static func liveCommands(_ commands: [IPCLiveCommandHelp.Command]) -> String {
         (["Live commands:"]
-            + commands.sorted { $0.id.rawValue < $1.id.rawValue }.map {
-                "  \($0.id.rawValue) — \($0.title): \($0.description)"
+            + commands.sorted { $0.id < $1.id }.map {
+                "  \($0.id) — \($0.title): \($0.description)"
             }).joined(separator: "\n")
     }
 
@@ -57,6 +66,9 @@ enum IPCDescriptorCLIHelp {
         named name: String, index: IPCBuiltInMethodIndex, inputs: IPCBuiltInMethodCatalogInputs?
     ) throws -> String {
         guard let entry = index.entry(named: name) else {
+            if let projection = index.compositionHelp.first(where: { $0.name == name }) {
+                return try compositionMethodHelp(projection, inputs: inputs)
+            }
             throw IPCDescriptorInvocationError.unknownMethod(named: name, index: index)
         }
         var lines = [
@@ -89,6 +101,32 @@ enum IPCDescriptorCLIHelp {
             let escapedParameterText = parameterText.replacingOccurrences(of: "'", with: "'\\''")
             lines.append("Example: agentstudio \(entry.name) --json '\(escapedParameterText)'")
         }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func compositionMethodHelp(
+        _ projection: IPCMethodHelpProjection, inputs: IPCBuiltInMethodCatalogInputs?
+    ) throws -> String {
+        var lines = ["\(projection.name) — \(projection.summary)"]
+        switch projection.argumentSyntax {
+        case .rawCommandStrings:
+            lines.append(
+                "Usage: agentstudio \(projection.name) --command-id NAME "
+                    + "[--arg key=value] [--correlation-id UUID]")
+            lines.append("Agent eligibility is conditional on the selected command and its target.")
+        case .schemaOptions:
+            lines.append("Usage: agentstudio \(projection.name) [--json '{}' | --stdin]")
+        }
+        if case .object(let fields) = try projection.parameterSchema(), !fields.isEmpty {
+            lines.append("Parameters:")
+            for field in fields {
+                let presence = field.presence == .required ? "required" : "optional"
+                lines.append("  \(field.name) (\(presence)) — \(field.description)")
+            }
+        }
+        let exampleInputs = inputs ?? .init(examples: .init(illustrativeIdentifier: UUIDv7.generate()))
+        let arguments = projection.exampleArguments(inputs: exampleInputs).joined(separator: " ")
+        lines.append("Example: agentstudio \(projection.name) \(arguments)")
         return lines.joined(separator: "\n")
     }
 }

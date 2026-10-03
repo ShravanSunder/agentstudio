@@ -80,6 +80,7 @@ package final class CLIStore: Sendable {
     package static func openWriter(
         url: URL,
         channel: CLIStoreChannel,
+        migrationLockWaitBudget: @escaping @Sendable () -> Duration? = { nil },
         logDecodeIssue: @escaping @Sendable (CLIStoreDecodeIssue) -> Void = { _ in }
     ) -> Result<CLIStore, CLIStoreFailure> {
         do {
@@ -87,8 +88,11 @@ package final class CLIStore: Sendable {
             try prepareWriterFile(at: url)
             // Open without a journal mutation until the version and channel
             // have been admitted. A foreign store must not be reshaped.
+            // GRDB installs this handler before its connection format check.
+            var configuration = makeConfiguration(readonly: false)
+            configuration.busyMode = .timeout(try firstOpenBusyTimeout(lockWaitBudget: migrationLockWaitBudget()))
             let databaseQueue = try DatabaseQueue(
-                path: url.path, configuration: makeConfiguration(readonly: false))
+                path: url.path, configuration: configuration)
             let migrator = CLIStoreMigrator.makeMigrator(channel: channel)
             let needsMigration = try databaseQueue.read { database in
                 let applied = try migrator.appliedIdentifiers(database)
@@ -111,10 +115,20 @@ package final class CLIStore: Sendable {
                 try database.execute(sql: "PRAGMA synchronous = FULL")
             }
             if needsMigration {
-                try migrator.migrate(databaseQueue)
+                try databaseQueue.writeWithoutTransaction { database in
+                    try migrateWriterSchema(database, channel: channel)
+                }
             }
             let identity = try databaseQueue.read { database in
-                try readIdentity(database, expectedChannel: channel)
+                guard try migrator.appliedIdentifiers(database) == CLIStoreMigrator.knownMigrations else {
+                    throw CLIStoreFailure.superseded
+                }
+                return try readIdentity(database, expectedChannel: channel)
+            }
+            // Only a verified writer escapes with the ordinary notice-write policy.
+            try databaseQueue.writeWithoutTransaction { database in
+                let milliseconds = Int(CLIStorePolicy.busyTimeout * CLIStorePolicy.millisecondsPerSecond)
+                try database.execute(sql: "PRAGMA busy_timeout = \(milliseconds)")
             }
             return .success(
                 CLIStore(
@@ -253,6 +267,25 @@ package final class CLIStore: Sendable {
             }
             return .success(removed)
         } catch { return .failure(Self.classifyFailure(error)) }
+    }
+
+    private static func firstOpenBusyTimeout(lockWaitBudget: Duration?) throws -> TimeInterval {
+        let cap = CLIStorePolicy.firstOpenMigrationLockWaitCap
+        let lockWait = min(cap, lockWaitBudget ?? cap)
+        guard lockWait > .zero else { throw CLIStoreFailure.busy }
+        // Round down so SQLite never receives a wait larger than the remaining budget.
+        let milliseconds = (lockWait / .milliseconds(1)).rounded(.down)
+        return milliseconds / CLIStorePolicy.millisecondsPerSecond
+    }
+
+    private static func migrateWriterSchema(_ database: Database, channel: CLIStoreChannel) throws {
+        try database.inTransaction(.immediate) {
+            if try database.tableExists("cli_store_identity") {
+                _ = try readIdentity(database, expectedChannel: channel)
+            }
+            try CLIStoreMigrator.migrateLocked(database, channel: channel)
+            return .commit
+        }
     }
 
     private static func readIdentity(

@@ -50,7 +50,6 @@ package struct IPCDescriptorClientFailure: Error, Equatable, Sendable {
         case notSubmitted
         case endpointUnavailableBeforeSubmission
         case authenticationRejected
-        case protocolRejected
         case deliveryUncertain
     }
 
@@ -65,7 +64,6 @@ package struct IPCDescriptorClientFailure: Error, Equatable, Sendable {
         case responseIDMismatch
         case invalidResponse
         case invalidTypedResult
-        case unsupportedVersion(IPCSchemaValidationError)
     }
 
     package let disposition: Disposition

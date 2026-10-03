@@ -202,8 +202,8 @@ actor PaneCLIOutboxDrain {
         } catch let error as AppIPCSessionsError {
             switch error.reason {
             case .correlationConflict: return .duplicate
-            case .targetNotFound, .validationRejected: return .refused
-            case .bindingRequired, .ingestionUnavailable: return .retryable
+            case .targetNotFound, .validationRejected, .bindingRequired: return .refused
+            case .ingestionUnavailable: return .retryable
             }
         } catch { return .malformed(.malformedEnvelope) }
     }

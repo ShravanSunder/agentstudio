@@ -99,7 +99,8 @@ package enum CursorHookInvocation {
         guard let descriptor = descriptors.first(where: { $0.metadata.name == "session.event" }) else {
             throw CursorHookInvocationError.sessionEventUnavailable
         }
-        let cleanup = CLIStoreCleanupHandler(environment: environment)
+        let cleanup = CLIStoreCleanupHandler(
+            environment: environment, migrationLockWaitBudget: { deadline.remainingBudget })
         let client = AgentStudioIPCClient(
             configuration: configuration, descriptors: descriptors, deadline: deadline,
             onCallCompletion: { cleanup.handle(readThrough: $0) })

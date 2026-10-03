@@ -6,25 +6,31 @@ import Foundation
 package struct CLIStoreCleanupHandler: Sendable {
     private let location: CleanupStoreLocation?
     private let now: @Sendable () -> Date
-    private let diagnosticSink: @Sendable (String) -> Void
+    private let migrationLockWaitBudget: @Sendable () -> Duration?
+    private let diagnosticSink: @Sendable (CLIStoreFailure) -> Void
 
     package init(
         environment: [String: String],
         now: @escaping @Sendable () -> Date = { Date() },
-        diagnosticSink: @escaping @Sendable (String) -> Void = { CLIDiagnostics.record($0) }
+        migrationLockWaitBudget: @escaping @Sendable () -> Duration? = { nil },
+        diagnosticSink: @escaping @Sendable (CLIStoreFailure) -> Void = {
+            CLIDiagnostics.record(.init(cleanupFailure: $0))
+        }
     ) {
         location = CleanupStoreLocation(environment: environment)
         self.now = now
+        self.migrationLockWaitBudget = migrationLockWaitBudget
         self.diagnosticSink = diagnosticSink
     }
 
     package func handle(readThrough: IPCCLIStoreReadThrough?) {
-        guard let readThrough, let location else { return }
-        let opened = CLIStore.openWriter(url: location.url, channel: location.channel)
+        guard let location else { return }
+        let opened = CLIStore.openWriter(
+            url: location.url, channel: location.channel, migrationLockWaitBudget: migrationLockWaitBudget)
         switch opened {
         case .failure(let failure): record(failure)
         case .success(let writer):
-            guard writer.identity.storeID == readThrough.storeId else { return }
+            guard let readThrough, writer.identity.storeID == readThrough.storeId else { return }
             if case .failure(let failure) = writer.purgeHandledOutbox(
                 expectedStoreID: readThrough.storeId, through: readThrough.outbox, now: now())
             {
@@ -34,9 +40,8 @@ package struct CLIStoreCleanupHandler: Sendable {
     }
 
     private func record(_ failure: CLIStoreFailure) {
-        diagnosticSink("Agent Studio CLI store cleanup skipped: \(String(describing: failure))")
+        diagnosticSink(failure)
     }
-
 }
 
 private struct CleanupStoreLocation: Sendable {

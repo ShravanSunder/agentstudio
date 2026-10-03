@@ -40,7 +40,8 @@ package struct ProviderHookDelivery: Sendable {
                 normalizedParameters: descriptor.normalizeParameters(JSONEncoder().encode(params)),
                 presentation: .tooling
             )
-            let cleanup = CLIStoreCleanupHandler(environment: environment)
+            let cleanup = CLIStoreCleanupHandler(
+                environment: environment, migrationLockWaitBudget: { deadline.remainingBudget })
             let client = AgentStudioIPCClient(
                 configuration: configuration, descriptors: descriptors, deadline: deadline,
                 onCallCompletion: { cleanup.handle(readThrough: $0) })

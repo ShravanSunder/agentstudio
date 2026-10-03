@@ -62,6 +62,48 @@ struct CommandLineClientLeafTargetArchitectureTests {
         "Tests/AgentStudioProgrammaticControlTests",
     ]
 
+    @Test("the raw CLI hard cutover leaves no eager or typed-command admission API")
+    func retiredClientAdmissionPathsAreRemoved() throws {
+        let root = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let forbidden: [String: [String]] = [
+            "Sources/AgentStudioProgrammaticControl/BuiltInDescriptors/IPCBuiltInMethodCatalog+Discovery.swift": [
+                "func bootstrapDescriptors", "func locallyResolvableDescriptors", "func resolvesLocally",
+                "func matchingDiscoveredMethods",
+            ],
+            "Sources/AgentStudioIPCClientCore/IPCCommandDiscovery.swift": [
+                "func makeInvocation", "func decodeResult", "requestEnvelopeDescriptor",
+            ],
+            "Sources/AgentStudioProgrammaticControl/IPCCommandCatalogResult.swift": [
+                "func normalizeDiscoveryResult"
+            ],
+            "Sources/AgentStudioIPCClientCore/IPCDescriptorClientResponse.swift": [
+                "case protocolRejected", "case unsupportedVersion",
+            ],
+            "Sources/AgentStudioIPCClientCore/AgentStudioIPCClientCommandLineRunner.swift": [
+                "init(unsupportedVersion"
+            ],
+        ]
+        for (path, declarations) in forbidden {
+            let url = root.appending(path: path)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            let source = try String(contentsOf: url, encoding: .utf8)
+            for declaration in declarations {
+                #expect(!source.contains(declaration), "retired declaration: \(path): \(declaration)")
+            }
+        }
+    }
+
+    @Test("CLI diagnostics persist controlled public reasons instead of free-form debug messages")
+    func diagnosticsKeepPayloadFreePersistedReasons() throws {
+        let root = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: root.appending(path: "Sources/AgentStudioIPCClientCore/CLIDiagnostics.swift"), encoding: .utf8)
+        #expect(source.contains("logger.notice(") || source.contains("logger.error("))
+        #expect(source.contains("privacy: .public"))
+        #expect(!source.contains("record(_ message: String)"))
+        #expect(!source.contains("logger.debug("))
+    }
+
     @Test("CLI-side targets import only their approved low-level modules")
     func commandLineClientTargetsImportOnlyApprovedModules() throws {
         // Arrange

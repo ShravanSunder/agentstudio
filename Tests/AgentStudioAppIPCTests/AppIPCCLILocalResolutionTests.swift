@@ -60,14 +60,12 @@ struct AppIPCCLILocalResolutionTests {
         #expect(catalog.methods.contains { $0.name == "terminal.send" })
     }
 
-    @Test("reload-catalog explicitly discovers before invoking a compiled method")
-    func reloadCatalogIsExplicitDiscovery() async throws {
+    @Test("the retired reload-catalog flag is refused locally without fetching")
+    func retiredReloadFlagNeverConnects() async throws {
         let observed = try await runRecordedCLIInvocation(.init(arguments: ["--reload-catalog", "system.identify"]))
-
-        #expect(observed.outcome.exitCode == 0, "stderr: \(observed.outcome.standardError)")
-        #expect(observed.requests.filter { $0.method == "system.capabilities" }.count == 1)
-        #expect(observed.requests.filter { $0.method == "system.identify" }.count == 1)
-        #expect(!observed.requests.contains { $0.method == "command.list" })
+        #expect(observed.outcome.exitCode != 0)
+        #expect(observed.acceptedConnections == 0)
+        #expect(observed.requests.isEmpty)
     }
 
     @Test("stdin defaults correlation in the actual request sent to the server")

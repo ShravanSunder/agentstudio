@@ -532,7 +532,7 @@ private func failure<Value>(in result: Result<Value, CLIStoreFailure>) -> CLISto
     }
 }
 
-private struct CLIStoreFileFixture: Sendable {
+struct CLIStoreFileFixture: Sendable {
     let rootURL: URL
     let databaseURL: URL
     let createdAt = Date(timeIntervalSince1970: 1_700_000_000)

@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioIPCClientCore
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioTestHarness
@@ -19,6 +20,26 @@ import Testing
 @Suite("App IPC catalog frame transport", .serialized)
 struct AgentStudioIPCCatalogFrameTransportTests {
     init() { installTestCoreAtomsIfNeeded() }
+
+    @Test("offline help's name inventory equals the real prepared app's composed debug methods")
+    func offlineNameInventoryMatchesAppComposition() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        do {
+            let registry = try #require(harness.appDelegate.appIPCServer?.service.methodRegistry)
+            let rendered = try IPCCompiledInvocationResolver().localHelp(arguments: ["help"])
+            let help = try #require(rendered)
+            let names = help.split(separator: "\n").compactMap { line -> String? in
+                guard line.hasPrefix("  "), let separator = line.range(of: " — ") else { return nil }
+                return String(line[..<separator.lowerBound]).trimmingCharacters(in: .whitespaces)
+            }
+            #expect(Set(names) == Set(registry.capabilities.methods.map(\.name)))
+            #expect(Set(names).count == names.count)
+        } catch {
+            await harness.tearDown()
+            throw error
+        }
+        await harness.tearDown()
+    }
 
     @Test("system.capabilities crosses the socket in one frame larger than the request bound")
     func systemCapabilitiesCrossesTheSocket() async throws {
@@ -163,7 +184,7 @@ struct AgentStudioIPCCatalogFrameTransportTests {
         await harness.tearDown()
     }
 
-    @Test("command discovery normalization preserves the real App catalog and nonmatching error")
+    @Test("App command composition normalization preserves the real catalog and nonmatching error")
     func commandDiscoveryNormalizationParity() async throws {
         let inputs = AgentStudioIPCCommandCatalogProjection.captureBuildInputs(on: .debug)
         let observation = try await valueFromDedicatedThread {
@@ -175,7 +196,7 @@ struct AgentStudioIPCCatalogFrameTransportTests {
             let reference = try schema.normalize(encoded)
             let preparedSchema = try IPCValidatedJSONSchema(schema: schema)
             let prepared = try preparedSchema.normalize(encoded)
-            let candidate = try IPCCommandCatalogResult.normalizeDiscoveryResult(encoded, catalog: catalog)
+            let candidate = try composition.listRepresentations.erasedDescriptor.normalizeResult(encoded).data
             let decoded = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: candidate)
 
             let document = try JSONSerialization.jsonObject(with: encoded)
@@ -188,7 +209,7 @@ struct AgentStudioIPCCatalogFrameTransportTests {
             let referenceError = try catalogNormalizationError { try schema.normalize(nonmatching) }
             let preparedError = try catalogNormalizationError { try preparedSchema.normalize(nonmatching) }
             let candidateError = try catalogNormalizationError {
-                try IPCCommandCatalogResult.normalizeDiscoveryResult(nonmatching, catalog: catalog)
+                try composition.listRepresentations.erasedDescriptor.normalizeResult(nonmatching).data
             }
             return CatalogNormalizationObservation(
                 normalizedBytesEqual: reference == candidate && reference == prepared,

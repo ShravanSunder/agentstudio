@@ -13,8 +13,11 @@ import Synchronization
 @testable import AgentStudioCore
 
 @MainActor
-func withPaneCLIOutboxDrainHarness(_ body: @MainActor (PaneCLIOutboxDrainHarness) async throws -> Void) async throws {
-    let harness = try await PaneCLIOutboxDrainHarness()
+func withPaneCLIOutboxDrainHarness(
+    refusalProbe: @escaping @Sendable (PaneCLIOutboxDrain.RefusalReason) -> Void = { _ in },
+    _ body: @MainActor (PaneCLIOutboxDrainHarness) async throws -> Void
+) async throws {
+    let harness = try await PaneCLIOutboxDrainHarness(refusalProbe: refusalProbe)
     do {
         try await body(harness)
     } catch {
@@ -38,11 +41,13 @@ final class PaneCLIOutboxDrainHarness {
     let admission: AgentStudioIPCSessionsAdapter
     let refusalRecorder = OutboxRefusalRecorder()
     private let drainOwner: PaneCLIOutboxDrain
+    private let additionalRefusalProbe: @Sendable (PaneCLIOutboxDrain.RefusalReason) -> Void
 
     static let qualifiedProvider = IPCSessionProviderIdentity(
         identifier: "outbox-drain-provider", version: "1.0.0", mode: "interactive")
 
-    init() async throws {
+    init(refusalProbe: @escaping @Sendable (PaneCLIOutboxDrain.RefusalReason) -> Void) async throws {
+        additionalRefusalProbe = refusalProbe
         let rootURL = FileManager.default.temporaryDirectory.appending(path: "cli-outbox-drain-\(UUIDv7.generate())")
         let storeURL = rootURL.appending(path: "ipc/cli.sqlite")
         self.rootURL = rootURL
@@ -73,7 +78,10 @@ final class PaneCLIOutboxDrainHarness {
         let recorder = refusalRecorder
         drainOwner = try PaneCLIOutboxDrain(
             admission: admission, sqliteAccess: sqliteAccess, expectedChannel: .debug,
-            refusalProbe: { recorder.record($0) })
+            refusalProbe: {
+                recorder.record($0)
+                refusalProbe($0)
+            })
     }
 
     func drain() async -> PaneCLIOutboxDrain.DrainReport {
@@ -82,9 +90,13 @@ final class PaneCLIOutboxDrainHarness {
 
     func restartedDrain() async throws -> PaneCLIOutboxDrain.DrainReport {
         let recorder = refusalRecorder
+        let refusalProbe = additionalRefusalProbe
         let restarted = try PaneCLIOutboxDrain(
             admission: admission, sqliteAccess: sqliteAccess, expectedChannel: .debug,
-            refusalProbe: { recorder.record($0) })
+            refusalProbe: {
+                recorder.record($0)
+                refusalProbe($0)
+            })
         return await restarted.drain(storeURL: storeURL, legacySpoolDirectory: legacyDirectory)
     }
 

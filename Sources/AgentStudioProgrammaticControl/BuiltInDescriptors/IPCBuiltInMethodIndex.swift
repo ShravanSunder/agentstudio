@@ -12,6 +12,16 @@ package struct IPCBuiltInMethodIndex: Sendable {
         entriesByName = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0) })
     }
 
+    /// Runtime-dependent result catalogs are unnecessary for help and name corrections.
+    package var compositionHelp: [IPCMethodHelpProjection] {
+        [
+            IPCCommandMethodComposition.executeHelp, IPCCommandMethodComposition.listHelp,
+            IPCSystemCapabilitiesDescriptorFactory.helpProjection,
+        ]
+    }
+
+    package var methodNames: [String] { entries.map(\.name) + compositionHelp.map(\.name) }
+
     package func entry(named name: String) -> IPCBuiltInMethodIndexEntry? {
         entriesByName[name]
     }

@@ -49,7 +49,8 @@ struct AppIPCCLIHelpAndExitTests {
 
         #expect(observed.outcome.exitCode == 0, "stderr: \(observed.outcome.standardError)")
         #expect(observed.outcome.standardOutput.contains(recordedCLILiveCommandID.rawValue))
-        #expect(observed.requests.filter { $0.method == "system.capabilities" }.count == 1)
+        // A2 / R31: live help reads only command.list presentation metadata.
+        #expect(!observed.requests.contains { $0.method == "system.capabilities" })
         #expect(observed.requests.filter { $0.method == "command.list" }.count == 1)
         #expect(!observed.requests.contains { $0.method == "command.execute" })
     }

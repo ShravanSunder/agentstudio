@@ -268,6 +268,7 @@ extension AppDelegate {
         )
         let sqliteAccess = WorkspaceSessionsSQLiteAccess(datastore: datastore)
         let channel = cliStoreChannel
+        let telemetry = AgentStudioIPCAgentAuthorizationTelemetry(performanceTraceRecorder: performanceTraceRecorder)
         // Intake and catalog construction run off MainActor; the app only reads
         // the CLI file and its cursor uses the existing application-local writer.
         // swiftlint:disable:next no_task_detached
@@ -277,7 +278,7 @@ extension AppDelegate {
                     admission: lateAdmission, sqliteAccess: sqliteAccess,
                     expectedChannel: channel,
                     refusalProbe: { reason in
-                        appLogger.info("Offline notice refused: \(reason.rawValue, privacy: .public)")
+                        telemetry.recordOfflineNoticeRefusal(reason: reason)
                     })
                 let report = await drain.drain(storeURL: storeURL)
                 guard report.hasWork else { return }

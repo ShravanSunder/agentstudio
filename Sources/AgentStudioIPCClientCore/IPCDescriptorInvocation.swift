@@ -73,9 +73,9 @@ package struct IPCDescriptorInvocationError: Error, Equatable, Sendable,
     }
 
     static func unknownMethod(named name: String, index: IPCBuiltInMethodIndex) -> Self {
-        let rankedMethods: [(methodName: String, distance: Int)] = index.entries.map { entry in
-            let distance: Int = editDistance(name, entry.name)
-            return (methodName: entry.name, distance: distance)
+        let rankedMethods: [(methodName: String, distance: Int)] = index.methodNames.map { methodName in
+            let distance: Int = editDistance(name, methodName)
+            return (methodName: methodName, distance: distance)
         }
         let sortedMethods: [(methodName: String, distance: Int)] = rankedMethods.sorted { first, second in
             if first.distance == second.distance { return first.methodName < second.methodName }

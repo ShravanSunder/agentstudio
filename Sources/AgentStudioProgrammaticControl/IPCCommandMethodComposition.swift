@@ -7,8 +7,31 @@ package enum IPCCommandMethodCompositionError: Error, Equatable, Sendable {
 }
 
 /// One immutable command value supplies discovery, server registration, and
-/// later descriptor-driven CLI construction.
+/// its compiled raw CLI envelope and help projection.
 package struct IPCCommandMethodComposition: Sendable {
+    package static var listHelp: IPCMethodHelpProjection {
+        IPCMethodHelpProjection(
+            name: "command.list", summary: "Return the complete available typed App command catalog.",
+            agentAccess: .readOnly, argumentSyntax: .schemaOptions,
+            parameterSchema: { try IPCEmptyParams.ipcSchema() },
+            exampleArguments: { _ in ["--json", "'{}'"] })
+    }
+
+    package static var executeHelp: IPCMethodHelpProjection {
+        IPCMethodHelpProjection(
+            name: "command.execute",
+            summary: "Execute one available App command with raw strings parsed against its owning spec.",
+            agentAccess: .selectedCommand, argumentSyntax: .rawCommandStrings,
+            parameterSchema: { try IPCRawCommandExecutionRequest.ipcSchema() },
+            exampleArguments: { inputs in
+                // The existing scroll-to-bottom command example needs only its window and pane target.
+                [
+                    "--command-id", "scrollToBottom", "--arg", "workspaceWindowId=\(inputs.examples.windowId)",
+                    "--arg", "paneSelector=self",
+                ]
+            })
+    }
+
     package static let executionErrors = [
         IPCMethodErrorCase(
             reason: "invalidParams",
@@ -95,8 +118,8 @@ package struct IPCCommandMethodComposition: Sendable {
             }
 
         let list = try IPCMethodDescriptor(
-            name: "command.list",
-            description: "Return the complete available typed App command catalog.",
+            name: Self.listHelp.name,
+            description: Self.listHelp.summary,
             parameterSchema: try IPCEmptyParams.ipcSchema(),
             resultSchema: catalogSchema,
             examples: [
@@ -120,7 +143,7 @@ package struct IPCCommandMethodComposition: Sendable {
             agentEligibility: .anyTarget
         )
         let execute = try Self.makeExecute(
-            description: "Execute one available App command with raw strings parsed against its owning spec.",
+            description: Self.executeHelp.summary,
             resultVariants: resultVariants,
             examples: methodExamples,
             allowedTargetKinds: Set(commands.flatMap(\.allowedTargetKinds))
@@ -161,7 +184,7 @@ package struct IPCCommandMethodComposition: Sendable {
         allowedTargetKinds: Set<IPCHandleKind>
     ) throws -> IPCMethodDescriptor<IPCRawCommandExecutionRequest, IPCCommandExecutionResult> {
         try IPCMethodDescriptor(
-            name: "command.execute",
+            name: Self.executeHelp.name,
             description: description,
             parameterSchema: try IPCRawCommandExecutionRequest.ipcSchema(),
             resultSchema: try IPCCommandExecutionResult.ipcSchema(allowing: resultVariants),

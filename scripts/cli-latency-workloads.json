@@ -10,6 +10,18 @@
       "fixtureRequirement": "ownedPane"
     },
     {
+      "name": "message",
+      "argv": ["session.message", "--handle", "self", "--text", "benchmark notice ${sampleId}"],
+      "budgetClass": "hookOrNotice",
+      "fixtureRequirement": "ownedPane"
+    },
+    {
+      "name": "done",
+      "argv": ["session.report", "--handle", "self", "--kind", "done"],
+      "budgetClass": "hookOrNotice",
+      "fixtureRequirement": "ownedPane"
+    },
+    {
       "name": "session",
       "argv": ["session.query", "--handle", "self"],
       "budgetClass": "other",

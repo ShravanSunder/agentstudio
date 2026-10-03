@@ -12,6 +12,11 @@ public struct CallDeadline: Sendable {
         expiresAt = ContinuousClock.now.advanced(by: limit)
     }
 
+    /// Downstream completion work shares the original limit instead of starting another one.
+    package var remainingBudget: Duration {
+        max(.zero, ContinuousClock.now.duration(to: expiresAt))
+    }
+
     #if canImport(Darwin)
         func checkExpiration() throws {
             guard ContinuousClock.now < expiresAt else {

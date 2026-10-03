@@ -12,6 +12,72 @@ import Testing
 @MainActor
 @Suite("Pane CLI outbox drain", .serialized)
 struct PaneCLIOutboxDrainTests {
+    @Test("a real drain refusal emits only its controlled reason class through IPC telemetry")
+    func drainRefusalIsRecordedAsTelemetry() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "outbox-telemetry-\(UUIDv7.generate())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl", "AGENTSTUDIO_TRACE_DIR": directory.path,
+                "AGENTSTUDIO_TRACE_NAME": "outbox-refusal", "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]), processIdentifier: 909, timeUnixNano: { 117 })
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        let telemetry = AgentStudioIPCAgentAuthorizationTelemetry(performanceTraceRecorder: recorder)
+        // Existing telemetry is a positive control for writer/configuration readiness.
+        telemetry.recordAgentAuthorization(elapsed: .zero, outcome: .authorized)
+        let marker = "PRIVATE-OFFLINE-PAYLOAD-MUST-NOT-RECORD"
+        let recordRefusal: @Sendable (PaneCLIOutboxDrain.RefusalReason) -> Void = { reason in
+            telemetry.recordOfflineNoticeRefusal(reason: reason)
+        }
+        do {
+            try await withPaneCLIOutboxDrainHarness(refusalProbe: recordRefusal) { harness in
+                let entry = try await harness.append(paneID: UUIDv7.generate(), line: marker)
+                let report = await harness.drain()
+                #expect(report.malformedEntryCount == 1)
+                #expect(harness.refusalRecorder.reasons == [.malformedEnvelope])
+                #expect(try await harness.cursor() == entry.id)
+            }
+        } catch {
+            try? await recorder.drain()
+            throw error
+        }
+        try await recorder.drain()
+        let file = try #require(runtime.outputFileURL)
+        let text = try await valueFromDedicatedThread { try String(contentsOf: file, encoding: .utf8) }
+        #expect(text.contains("performance.ipc.agent_authorization"))
+        #expect(text.contains("performance.ipc.outbox_refusal"))
+        #expect(text.contains("agentstudio.performance.ipc.outbox_refusal.reason"))
+        #expect(text.contains(PaneCLIOutboxDrain.RefusalReason.malformedEnvelope.rawValue))
+        #expect(!text.contains(marker))
+        #expect(!text.contains("pane_id"))
+        #expect(!text.contains("store_id"))
+    }
+
+    @Test("a never-bound pane cannot wedge a later bound pane's notice")
+    func unboundPaneDoesNotHoldAnotherPane() async throws {
+        try await withPaneCLIOutboxDrainHarness { harness in
+            let unboundPane = UUIDv7.generate()
+            let boundPane = UUIDv7.generate()
+            try await harness.bindPane(paneID: boundPane)
+            let refused = try await harness.append(
+                paneID: unboundPane, line: harness.reportLine(kind: .done, explanation: nil))
+            let admitted = try await harness.append(
+                paneID: boundPane, line: harness.messageLine(text: "other pane survives"))
+
+            let report = await harness.drain()
+
+            #expect(refused.id < admitted.id)
+            #expect(report.refusedEntryCount == 1)
+            #expect(report.admittedEntryCount == 1)
+            #expect(report.retryableEntryCount == 0)
+            #expect(harness.refusalRecorder.reasons == [.qualificationRejected])
+            #expect(try await harness.cursor() == admitted.id)
+            #expect(try await harness.rows() == [refused, admitted])
+            #expect(try await harness.snapshot(paneID: unboundPane).currentBinding == nil)
+            #expect(try await harness.snapshot(paneID: boundPane).messages.map(\.text) == ["other pane survives"])
+        }
+    }
+
     @Test("one queued message becomes late evidence and advances the cursor without changing the outbox")
     func queuedMessageIsAdmittedLateAndReadThrough() async throws {
         try await withPaneCLIOutboxDrainHarness { harness in
@@ -122,8 +188,8 @@ struct PaneCLIOutboxDrainTests {
         }
     }
 
-    @Test("an unbound pane's deliberate report stays unread until the pane binds")
-    func unboundDeliberateReportWaitsForBinding() async throws {
+    @Test("an unbound pane's deliberate report is refused and never replayed after binding")
+    func unboundDeliberateReportIsRefused() async throws {
         try await withPaneCLIOutboxDrainHarness { harness in
             let paneID = UUIDv7.generate()
             let entry = try await harness.append(
@@ -132,16 +198,17 @@ struct PaneCLIOutboxDrainTests {
 
             let beforeBinding = await harness.drain()
 
-            #expect(beforeBinding.retryableEntryCount == 1)
-            #expect(beforeBinding.refusedEntryCount == 0)
-            #expect(try await harness.cursor() == 0)
+            #expect(beforeBinding.retryableEntryCount == 0)
+            #expect(beforeBinding.refusedEntryCount == 1)
+            #expect(harness.refusalRecorder.reasons == [.qualificationRejected])
+            #expect(try await harness.cursor() == entry.id)
             #expect(try await harness.rows() == [entry])
             try await harness.bindPane(paneID: paneID)
             let afterBinding = await harness.drain()
-            #expect(afterBinding.admittedEntryCount == 1)
+            #expect(afterBinding.admittedEntryCount == 0)
             #expect(afterBinding.retryableEntryCount == 0)
             #expect(try await harness.cursor() == entry.id)
-            #expect(try await harness.snapshot(paneID: paneID).currentAttention.count == 1)
+            #expect(try await harness.snapshot(paneID: paneID).currentAttention.isEmpty)
         }
     }
 
@@ -218,32 +285,35 @@ struct PaneCLIOutboxDrainTests {
         }
     }
 
-    @Test("a partial drain advances only the handled prefix and keeps later rows ordered")
-    func partialDrainPreservesUnreadPrefix() async throws {
+    @Test("a permanent refusal advances the handled prefix without holding later notices")
+    func permanentRefusalDoesNotHoldLaterNotices() async throws {
         try await withPaneCLIOutboxDrainHarness { harness in
             let paneID = UUIDv7.generate()
             let handled = try await harness.append(paneID: paneID, line: harness.messageLine(text: "first"))
-            let retry = try await harness.append(
+            let refused = try await harness.append(
                 paneID: paneID, line: harness.reportLine(kind: .needsYou, explanation: "bind first"))
             let later = try await harness.append(
-                paneID: paneID, line: harness.messageLine(text: "must stay behind retry"))
+                paneID: paneID, line: harness.messageLine(text: "survives permanent refusal"))
 
             let report = await harness.drain()
 
-            #expect(report.admittedEntryCount == 1)
-            #expect(report.retryableEntryCount == 1)
-            #expect(try await harness.cursor() == handled.id)
-            #expect(try await harness.rows() == [handled, retry, later])
-            #expect(try await harness.snapshot(paneID: paneID).messages.map(\.text) == ["first"])
+            #expect(report.admittedEntryCount == 2)
+            #expect(report.refusedEntryCount == 1)
+            #expect(report.retryableEntryCount == 0)
+            #expect(try await harness.cursor() == later.id)
+            #expect(try await harness.rows() == [handled, refused, later])
+            let messages = try await harness.snapshot(paneID: paneID).messages.map(\.text)
+            #expect(Set(messages) == Set(["first", "survives permanent refusal"]))
+            #expect(messages.count == 2)
         }
     }
 
-    @Test("a concurrent CLI append during partial drain is never lost")
-    func concurrentAppendDuringPartialDrainSurvives() async throws {
+    @Test("a concurrent CLI append during drain is never lost")
+    func concurrentAppendDuringDrainSurvives() async throws {
         try await withPaneCLIOutboxDrainHarness { harness in
             let paneID = UUIDv7.generate()
             let handled = try await harness.append(paneID: paneID, line: harness.messageLine(text: "first"))
-            let retry = try await harness.append(
+            let refused = try await harness.append(
                 paneID: paneID, line: harness.reportLine(kind: .needsYou, explanation: "bind first"))
             let appendedLine = try harness.reportLine(kind: .needsYou, explanation: "second approval")
 
@@ -252,9 +322,14 @@ struct PaneCLIOutboxDrainTests {
             let (report, last) = try await (drained, appended)
 
             #expect(report.admittedEntryCount == 1)
-            #expect(report.retryableEntryCount == 1)
-            #expect(try await harness.cursor() == handled.id)
-            #expect(try await harness.rows() == [handled, retry, last])
+            #expect(report.retryableEntryCount == 0)
+            #expect(report.refusedEntryCount >= 1)
+            #expect(try await harness.cursor() >= refused.id)
+            let completed = try await harness.restartedDrain()
+            #expect(completed.retryableEntryCount == 0)
+            #expect(report.refusedEntryCount + completed.refusedEntryCount == 2)
+            #expect(try await harness.cursor() == last.id)
+            #expect(try await harness.rows() == [handled, refused, last])
         }
     }
 
@@ -365,21 +440,23 @@ struct PaneCLIOutboxDrainTests {
         }
     }
 
-    @Test("an unbound legacy report survives first-start import until it can be admitted")
-    func legacyRetryIsNotDiscarded() async throws {
+    @Test("an unbound legacy report is refused and removed rather than replayed after binding")
+    func legacyUnboundReportIsRefused() async throws {
         try await withPaneCLIOutboxDrainHarness { harness in
             let paneID = UUIDv7.generate()
             try harness.writeLegacyFile(
                 paneID: paneID, lines: [harness.reportLine(kind: .needsYou, explanation: "legacy approval")])
 
-            _ = await harness.drain()
+            let refused = await harness.drain()
 
-            #expect(FileManager.default.fileExists(atPath: harness.legacyFileURL(paneID: paneID).path))
+            #expect(refused.refusedEntryCount == 1)
+            #expect(refused.retryableEntryCount == 0)
+            #expect(!FileManager.default.fileExists(atPath: harness.legacyFileURL(paneID: paneID).path))
             try await harness.bindPane(paneID: paneID)
             let retried = try await harness.restartedDrain()
-            #expect(retried.importedLegacyLineCount == 1)
+            #expect(retried.importedLegacyLineCount == 0)
             #expect(!FileManager.default.fileExists(atPath: harness.legacyFileURL(paneID: paneID).path))
-            #expect(try await harness.snapshot(paneID: paneID).currentAttention.count == 1)
+            #expect(try await harness.snapshot(paneID: paneID).currentAttention.isEmpty)
         }
     }
 }

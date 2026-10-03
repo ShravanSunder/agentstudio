@@ -15,19 +15,6 @@ struct IPCBuiltInMethodCatalogTests {
         #expect(names == names.sorted())
     }
 
-    @Test("the CLI resolves every compiled static method without a discovered catalog")
-    func cliLocallyResolvesExactStaticSurface() throws {
-        let descriptors = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: fixtureContext)
-        let names = descriptors.map(\.metadata.name)
-
-        #expect(Set(names) == Set(expectedStaticMethodNames))
-        #expect(names.count == Set(names).count)
-        for name in expectedStaticMethodNames {
-            #expect(IPCBuiltInMethodCatalog.resolvesLocally([name], descriptors: descriptors), "method: \(name)")
-        }
-        #expect(!IPCBuiltInMethodCatalog.resolvesLocally(["terminal.sned"], descriptors: descriptors))
-    }
-
     @Test("every static descriptor carries at least one validated typed example")
     func everyDescriptorHasTypedExamples() throws {
         let catalog = try makeCatalog(waitMaximum: 9)
@@ -179,10 +166,8 @@ struct IPCBuiltInMethodCatalogTests {
 
     @Test("local wait validation matches the advertised finite nonnegative intake")
     func localWaitValidationMatchesAdvertisedIntake() throws {
-        let local = try #require(
-            IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: fixtureContext).first {
-                $0.metadata.name == "terminal.wait"
-            })
+        let entry = try #require(IPCBuiltInMethodIndex().entry(named: "terminal.wait"))
+        let local = try entry.makeRepresentation(inputs: .init(examples: fixtureContext)).erasedDescriptor
         let abovePolicy = Data(#"{"handle":"self","condition":"titleChanged","timeoutSeconds":10}"#.utf8)
         _ = try local.normalizeParameters(abovePolicy)
         _ = try makeCatalog(waitMaximum: 9).terminal.terminalWait.decodeParameters(from: abovePolicy)

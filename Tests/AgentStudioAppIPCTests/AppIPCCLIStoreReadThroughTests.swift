@@ -15,6 +15,105 @@ import Testing
 
 @Suite("App IPC CLI store read-through", .serialized)
 struct AppIPCCLIStoreReadThroughTests {
+    @Test("an ordinary online call migrates a previous-schema pane store with a null cleanup mark")
+    func onlineCallMigratesWithoutPurgePermission() async throws {
+        let storage = try await valueFromDedicatedThread { try ReadThroughStorageFixture(cursor: nil) }
+        defer { storage.removeFiles() }
+        let previousURL = storage.rootURL.appending(path: "previous.sqlite")
+        let identity = try await valueFromDedicatedThread {
+            let queue = try DatabaseQueue(path: previousURL.path)
+            try CLIStoreMigrator.makeMigrator(channel: .debug).migrate(queue, upTo: CLIStoreMigrator.identityMigration)
+            let identity = try CLIStore.openReader(url: previousURL, expectedChannel: .debug).get().identity
+            try queue.close()
+            return identity
+        }
+        let reader = AppCLIStoreReadThroughReader(
+            storeURL: previousURL, expectedChannel: .debug, datastore: storage.datastore)
+        try await withLiveServer(
+            makeFixture: { try makeServerFixture(reader: reader) },
+            body: { fixture in
+                try fixture.server.start()
+                let response = try await login(fixture: fixture)
+                let status = try decodeResponseResult(IPCAuthStatusResult.self, from: response)
+                guard case .authenticated(_, _, _, let mark) = status else {
+                    Issue.record("Expected authenticated login")
+                    return
+                }
+                #expect(mark == nil)
+                let code = try await runCLI(fixture: fixture, storage: storage, storeURL: previousURL)
+                #expect(code == 0)
+                let observed = try await valueFromDedicatedThread {
+                    let queue = try DatabaseQueue(path: previousURL.path)
+                    defer { try? queue.close() }
+                    return try queue.read { database in
+                        let hasOutbox = try database.tableExists("cli_outbox")
+                        let noticeCount: Int? =
+                            hasOutbox ? try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_outbox") : 0
+                        return (
+                            migrations: try CLIStoreMigrator.makeMigrator(channel: .debug).appliedMigrations(database),
+                            storeID: try String.fetchOne(database, sql: "SELECT store_id FROM cli_store_identity"),
+                            identityCount: try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_store_identity"),
+                            hasOutbox: hasOutbox,
+                            noticeCount: noticeCount
+                        )
+                    }
+                }
+                #expect(observed.migrations == [CLIStoreMigrator.identityMigration, CLIStoreMigrator.outboxMigration])
+                #expect(observed.storeID == identity.storeID.uuidString)
+                #expect(observed.identityCount == 1)
+                #expect(observed.hasOutbox)
+                #expect(observed.noticeCount == 0)
+                #expect(try await storage.cursor() == nil)
+            })
+    }
+
+    @Test("a successful message stays silent on stderr when its per-call cleanup writer is busy")
+    func successfulMessageDoesNotPrintCleanupFailure() async throws {
+        let storage = try await valueFromDedicatedThread { try ReadThroughStorageFixture(cursor: 2) }
+        defer { storage.removeFiles() }
+        let originalRows = try await storage.entries()
+        let paneID = UUIDv7.generate()
+        try await withLiveServer(
+            makeFixture: {
+                try LiveServerFixture(
+                    channel: .debug, panes: [makePaneSummary(id: paneID, ordinal: 1)],
+                    cliStoreReadThroughPort: storage.reader)
+            },
+            body: { fixture in
+                try fixture.server.start()
+                let held = HeldStep<Void>("CLI store cleanup is held by a real SQLite writer")
+                let writer = storage.writer
+                let lockOwner = Task {
+                    try await valueFromDedicatedThread {
+                        try writer.databaseQueue.write { _ in try held.arriveBlocking(()) }
+                    }
+                }
+                do {
+                    try await held.firstArrival()
+                    let token = try fixture.issueTestCredential(
+                        for: .pane(paneId: paneID, credentialRecordId: UUIDv7.generate(), status: .registered))
+                    let output = await runClientCommandLineOffCooperativePool(
+                        arguments: ["message", "notice succeeded"],
+                        environment: [
+                            "AGENTSTUDIO_IPC_SOCKET": fixture.paths.socketURL.path,
+                            "AGENTSTUDIO_PANE_TOKEN": token.rawValue,
+                            "AGENTSTUDIO_CLI_STORE": storage.storeURL.path,
+                            "AGENTSTUDIO_CLI_STORE_CHANNEL": "debug",
+                        ])
+                    held.release()
+                    try await lockOwner.value
+                    #expect(output.exitCode == 0)
+                    #expect(output.standardOutput.contains("message sent"))
+                    #expect(output.standardError.isEmpty)
+                    #expect(try await storage.entries() == originalRows)
+                } catch {
+                    held.release()
+                    _ = try? await lockOwner.value
+                    throw error
+                }
+            })
+    }
+
     @Test(
         "real auth.login reads the matching local cursor, with null for an absent cursor",
         arguments: [ReadThroughCursorScenario.absent, .empty, .handled])

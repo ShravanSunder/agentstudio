@@ -7,6 +7,20 @@ import Testing
 
 @Suite("CLI selective compiled invocation resolution")
 struct IPCCompiledInvocationResolverTests {
+    @Test("every static method resolves through the production selective recipes without discovery")
+    func everyStaticMethodResolvesThroughCompiledRecipes() throws {
+        let index = IPCBuiltInMethodIndex()
+        let resolver = IPCCompiledInvocationResolver(index: index)
+        let context = inputs
+        for entry in index.entries {
+            let descriptors = try resolver.resolve(arguments: [entry.name], authenticated: false, inputs: context)
+            #expect(descriptors.map(\.metadata.name) == [entry.name])
+        }
+        #expect(throws: IPCDescriptorInvocationError.self) {
+            try resolver.resolve(arguments: ["terminal.sned"], authenticated: false, inputs: context)
+        }
+    }
+
     @Test("index construction and metadata lookup never invoke descriptor or help-schema factories")
     func indexMetadataDoesNotConstructDescriptors() throws {
         let observation = ResolverFactoryObservation()

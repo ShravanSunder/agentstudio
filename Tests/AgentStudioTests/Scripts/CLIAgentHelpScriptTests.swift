@@ -22,8 +22,51 @@ struct CLIAgentHelpScriptTests {
             #expect(
                 ["[agent: own pane]", "[agent: read-only]", "[agent: not yet allowed]"].contains { line.hasSuffix($0) })
         }
-        #expect(!text.contains("system.capabilities"))
+        #expect(!text.contains("Discovery: agentstudio system.capabilities"))
         #expect(text.contains("Method help: agentstudio <method> --help"))
+    }
+
+    @Test("offline help includes command and discovery envelopes with conditional command eligibility")
+    func helpIncludesEveryCallableEnvelope() async throws {
+        let output = try await runOfflineHelpProcess(arguments: ["help"])
+        #expect(output.process.terminationStatus == 0)
+        #expect(output.process.standardError.isEmpty)
+        #expect(output.connections == 0)
+        let text = try #require(String(data: output.process.standardOutput, encoding: .utf8))
+        for method in ["command.execute", "command.list", "system.capabilities"] {
+            #expect(text.split(separator: "\n").contains { $0.hasPrefix("  \(method) — ") })
+        }
+        if let execution = text.split(separator: "\n").first(where: { $0.hasPrefix("  command.execute — ") }) {
+            #expect(execution.contains("command"))
+            #expect(execution.contains("conditional") || execution.contains("depends"))
+        }
+    }
+
+    @Test("raw command help is offline and shows command id, argument syntax and one example")
+    func rawCommandExecutionHelpIsDiscoverable() async throws {
+        let output = try await runOfflineHelpProcess(arguments: ["command.execute", "--help"])
+        #expect(output.process.terminationStatus == 0)
+        #expect(output.process.standardError.isEmpty)
+        #expect(output.connections == 0)
+        let text = try #require(String(data: output.process.standardOutput, encoding: .utf8))
+        #expect(text.contains("--command-id"))
+        #expect(text.contains("--arg"))
+        #expect(text.contains("key=value"))
+        let examples = text.split(separator: "\n").filter {
+            $0.contains("agentstudio command.execute") && !$0.contains("Usage:")
+        }
+        #expect(examples.count == 1)
+    }
+
+    @Test("unknown command-method spelling suggests the same complete offline name inventory")
+    func commandMethodSuggestionIsDiscoverable() async throws {
+        let output = try await runOfflineHelpProcess(arguments: ["command.excute"])
+        #expect(output.process.terminationStatus != 0)
+        #expect(output.process.standardOutput.isEmpty)
+        #expect(output.connections == 0)
+        let text = try #require(String(data: output.process.standardError, encoding: .utf8))
+        #expect(text.contains("agentstudio help"))
+        #expect(text.contains("command.execute"))
     }
 
     @Test("method help has its arguments and one example from that descriptor")

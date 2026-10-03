@@ -92,9 +92,6 @@ package struct AgentStudioIPCClientCommandLineRunner {
                     standardInputProvider: readInput
                 ).descriptorInvocation
             }
-            if global.reloadCatalog {
-                _ = try makeClient(configuration: global.configuration, descriptors: descriptors).discoverCatalog()
-            }
             try deliver(
                 invocation: invocation,
                 client: makeClient(
@@ -122,7 +119,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             try validateCapabilitiesParameters(global: global, readInput: readInput)
             try write(discoveryClient.discoverCatalogBytes())
         } else if global.methodArguments == ["help", "--live"] {
-            try writeLiveHelp(global: global, authentication: authentication, discoveryClient: discoveryClient)
+            try writeLiveHelp(discoveryClient: discoveryClient)
         } else {
             let schema = try IPCEmptyParams.ipcSchema()
             let arguments = Array(global.methodArguments.dropFirst())
@@ -130,7 +127,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
                 IPCDescriptorInvocationParser.toolingParameterData(
                     arguments: arguments, schema: schema,
                     standardInput: arguments.first == "--stdin" ? readInput() : nil))
-            try write(JSONEncoder().encode(discoveryClient.discoverCommands()))
+            try write(discoveryClient.discoverCommandBytes())
         }
         return true
     }
@@ -146,22 +143,10 @@ package struct AgentStudioIPCClientCommandLineRunner {
                 arguments: arguments, schema: schema, standardInput: input))
     }
 
-    private func writeLiveHelp(
-        global: IPCClientGlobalArguments, authentication: [IPCAnyMethodDescriptor],
-        discoveryClient: AgentStudioIPCClient
-    ) throws {
-        let catalog = try discoveryClient.discoverCatalog()
-        let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
-        let client = makeClient(
-            configuration: global.configuration,
-            descriptors: authentication + [discovery.commandListInvocation.descriptor])
-        switch try client.call(discovery.commandListInvocation) {
-        case .success(let response):
-            let commands = try discovery.decodeCommandCatalog(from: response.normalizedResult)
-            props.standardOutputSink(IPCDescriptorCLIHelp.liveCommands(commands.commandDescriptors))
-        case .remoteFailure(let failure):
-            throw CLIExit.structured(CLIErrorPresentation(remoteFailure: failure))
-        }
+    private func writeLiveHelp(discoveryClient: AgentStudioIPCClient) throws {
+        let resultBytes = try discoveryClient.discoverCommandBytes()
+        let metadata = try JSONDecoder().decode(IPCLiveCommandHelp.self, from: resultBytes)
+        props.standardOutputSink(IPCDescriptorCLIHelp.liveCommands(metadata.commands))
     }
 
     /// Sends one parsed invocation and writes whatever the app answers. A
@@ -248,9 +233,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
     private func makeClient(configuration: AgentStudioIPCClientConfiguration, descriptors: [IPCAnyMethodDescriptor])
         -> AgentStudioIPCClient
     {
-        let cleanup = CLIStoreCleanupHandler(
-            environment: props.environment, now: props.now,
-            diagnosticSink: props.standardErrorSink)
+        let cleanup = CLIStoreCleanupHandler(environment: props.environment, now: props.now)
         return AgentStudioIPCClient(
             configuration: configuration, descriptors: descriptors,
             onCallCompletion: { cleanup.handle(readThrough: $0) })
@@ -271,7 +254,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         let isHook: Bool = props.arguments.first == "hook"
         let providerDiagnostics: @Sendable (String) -> Void
         if isHook {
-            providerDiagnostics = { (message: String) in CLIDiagnostics.record(message) }
+            providerDiagnostics = { _ in CLIDiagnostics.record(.providerHookFailed) }
         } else {
             providerDiagnostics = props.standardErrorSink
         }
@@ -301,7 +284,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         let isHook: Bool = props.arguments.first == "hook"
         let packageDiagnostics: @Sendable (String) -> Void
         if isHook {
-            packageDiagnostics = { (message: String) in CLIDiagnostics.record(message) }
+            packageDiagnostics = { _ in CLIDiagnostics.record(.providerHookFailed) }
         } else {
             packageDiagnostics = props.standardErrorSink
         }
@@ -323,8 +306,6 @@ package struct AgentStudioIPCClientCommandLineRunner {
         case let failure as CLIStoreFailure:
             props.standardErrorSink(
                 "Agent Studio could not durably queue this notification: \(String(describing: failure))")
-        case let failure as IPCCommandDiscoveryError:
-            writeStructuredError(CLIErrorPresentation(commandDiscoveryFailure: failure))
         case let failure as IPCDescriptorInvocationError:
             writeStructuredError(CLIErrorPresentation(invocationFailure: failure))
         case let correction as IPCSchemaValidationError:
@@ -342,12 +323,8 @@ package struct AgentStudioIPCClientCommandLineRunner {
             props.standardErrorSink("Debug app not running; start it with the debug launcher.")
         case let failure as IPCDescriptorClientFailure where failure.disposition == .deliveryUncertain:
             props.standardErrorSink("Delivery uncertain.")
-        case let failure as IPCDescriptorClientFailure:
-            if case .unsupportedVersion(let correction) = failure.reason {
-                writeStructuredError(CLIErrorPresentation(unsupportedVersion: correction))
-            } else {
-                writeUnavailableError()
-            }
+        case is IPCDescriptorClientFailure:
+            writeUnavailableError()
         case let error as CLIExit:
             switch error {
             case .structured(let presentation): writeStructuredError(presentation)
@@ -398,32 +375,6 @@ private struct CLIErrorPresentation: Codable {
     var refusedName: String?
     var commandId: String?
     var closestMatches: [String]?
-
-    /// Every discovery failure already carries a field path and an expectation.
-    /// Dropping them left a catalog mismatch indistinguishable from a bad
-    /// argument, which is why a whole-catalog failure read as a bare
-    /// `invalidParams`. The switch is exhaustive so a new reason has to be
-    /// classified rather than silently losing its diagnostics.
-    init(commandDiscoveryFailure: IPCCommandDiscoveryError) {
-        fieldPath = commandDiscoveryFailure.fieldPath
-        expected = commandDiscoveryFailure.expected
-        switch commandDiscoveryFailure.reason {
-        case .unknownCommandIdentifier:
-            reason = "unknownCommand"
-            catalogMethod = "command.list"
-        case .argumentVariantNotAllowed, .invalidCommandCatalog:
-            reason = "invalidParams"
-            catalogMethod = "command.list"
-        case .missingCommandList, .missingCommandExecute, .incompatibleMethodMetadata:
-            reason = "invalidParams"
-            catalogMethod = "system.capabilities"
-        case .invalidCommandResult, .resultVariantNotAllowed, .resultCommandIdentifierMismatch,
-            .resultCorrelationMismatch:
-            reason = "invalidParams"
-            catalogMethod = "command.execute"
-        }
-        requiredScope = nil
-    }
 
     init(remoteFailure: IPCDescriptorRemoteFailure) {
         if let correction = remoteFailure.commandCorrection {
@@ -494,14 +445,6 @@ private struct CLIErrorPresentation: Codable {
         reason = "invalidParams"
         fieldPath = schemaCorrection.fieldPath
         expected = schemaCorrection.expected
-        catalogMethod = nil
-        requiredScope = nil
-    }
-
-    init(unsupportedVersion correction: IPCSchemaValidationError) {
-        reason = "unsupportedVersion"
-        fieldPath = Self.safeFieldPath(correction.fieldPath)
-        expected = correction.expected
         catalogMethod = nil
         requiredScope = nil
     }
