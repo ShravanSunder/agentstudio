@@ -7,6 +7,16 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 
+private struct DescriptorLifetimeFixture: Sendable {
+    let testQueue: DispatchQueue
+    let openRecorder: FactRecorder<String, Int32>
+    let closeRecorder: FactRecorder<String, Int32>
+    let cancellationRequestedRecorder: FactRecorder<String, Void>
+    let openSink: @Sendable (String, Int32) -> Void
+    let closeSink: @Sendable (String, Int32) -> Void
+    let cancellationRequestedSink: @Sendable (String, Void) -> Void
+}
+
 /// N1 (advisor review round 2, Lead 2026-10-02): proves
 /// `awaitSessionIdentityOnRealEvent`'s own watched directory descriptor
 /// (`ZmxE2ETests+RealEventWaits.swift`) stays open until its dispatch
@@ -42,96 +52,130 @@ extension E2ESerializedTests.ZmxE2ETests {
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 
-        // R2-5 item 2 (Lead decision 2026-10-02, option c):
-        // `awaitSessionIdentityOnRealEvent` now takes a `harness` to reuse
-        // its existing settle wait on a transient connect failure. This
-        // fake probe never throws one, so this harness is never actually
-        // called into -- constructed only to satisfy the parameter, and
-        // cleaned up the same way `withRealBackend` does.
+        let fixture = try makeDescriptorLifetimeFixture()
         let harness = await ZmxTestHarness()
-        defer { Task { await harness.cleanup() } }
+        let scenarioResult = await driveDescriptorLifetimeScenario(
+            fixture: fixture, harness: harness, zmxDirectoryPath: temporaryDirectory.path)
+        let cleanupOutcome = await harness.cleanup()
+        #expect(cleanupOutcome.succeeded, "harness cleanup failed: \(cleanupOutcome.diagnostics)")
+        try scenarioResult.get()
+    }
 
+    private func makeDescriptorLifetimeFixture() throws -> DescriptorLifetimeFixture {
         let testQueue = DispatchQueue(label: "zmx-e2e-n1-test-queue", qos: .userInitiated)
         testQueue.suspend()
-
         let openSource = LocalFactSource(vocabulary: Self.fileDescriptorFactVocabulary())
-        let openRecorder = try openSource.attach()
         let closeSource = LocalFactSource(vocabulary: Self.fileDescriptorFactVocabulary())
-        let closeRecorder = try closeSource.attach()
-        let openSink = openSource.sink
-        let closeSink = closeSource.sink
-        // R3-3 item 2 (review round 3, Lead decision 2026-10-02): a signal
-        // for "this function's own unwind reached eventSource.cancel()" --
-        // see `awaitSessionIdentityOnRealEvent`'s own doc comment. Without
-        // awaiting this, the old assertion below ("still open while
-        // pending") was true in both the fixed and the regressed
-        // implementation at that exact instant, simply because neither
-        // one's teardown had run yet -- not a discriminating oracle.
         let cancellationRequestedSource = LocalFactSource(
             vocabulary: FactVocabulary<String, Void>(
                 describeScope: { $0 },
                 describeFact: { _ in "cancellation requested" },
                 isClosing: { _, _ in true }
             ))
-        let cancellationRequestedRecorder = try cancellationRequestedSource.attach()
-        let cancellationRequestedSink = cancellationRequestedSource.sink
+        return DescriptorLifetimeFixture(
+            testQueue: testQueue,
+            openRecorder: try openSource.attach(),
+            closeRecorder: try closeSource.attach(),
+            cancellationRequestedRecorder: try cancellationRequestedSource.attach(),
+            openSink: openSource.sink,
+            closeSink: closeSource.sink,
+            cancellationRequestedSink: cancellationRequestedSource.sink
+        )
+    }
 
-        let task = Task {
-            try await self.awaitSessionIdentityOnRealEvent(
-                .generateUUIDv7(),
-                harness: harness,
-                backend: AlwaysAbsentSessionRestoreProbe(),
-                zmxDirectory: temporaryDirectory.path,
-                queue: testQueue,
-                directoryOpenFactSink: { descriptor in openSink("opened", descriptor) },
-                directoryCloseFactSink: { descriptor in closeSink("closed", descriptor) },
-                cancellationRequestedFactSink: { cancellationRequestedSink("cancelled", ()) }
-            )
-        }
-
-        // R2-4 item 4's own technique: this fact fires synchronously, right
-        // after `open()` succeeds, with no suspension point between there
-        // and `eventSource.resume()` below it -- by the time this returns,
-        // the watch source has unconditionally already been constructed
-        // and resumed.
-        let watchedDescriptor = try await openRecorder.expectNext(in: "opened", where: { _ in true }, "directory open")
-        #expect(fcntl(watchedDescriptor, F_GETFD) != -1, "the descriptor must be open right after opening")
-
-        task.cancel()
-
-        // Awaited before asserting "still open": `dispatch_source_cancel`
-        // is non-blocking (source.h:512), so this fires once the function
-        // has processed cancellation and called it, independent of
-        // `testQueue` still being suspended -- the actual close is queued
-        // on that suspended queue's cancel handler and cannot have run
-        // yet. A regressed bare `defer { close(...) }` would already have
-        // closed the descriptor by the time this same fact fires.
-        _ = try await cancellationRequestedRecorder.expectNext(
-            in: "cancelled", where: { _ in true }, "cancellation requested")
-        #expect(
-            fcntl(watchedDescriptor, F_GETFD) != -1,
-            "the descriptor must stay open while cancellation is pending")
-
-        // Free the queue so the cancel handler can actually run, then await
-        // the real close as a fact instead of a queue-drain proxy for it.
-        testQueue.resume()
-        let closedDescriptor = try await closeRecorder.expectNext(in: "closed", where: { _ in true }, "directory close")
-        #expect(closedDescriptor == watchedDescriptor, "the cancel handler must close exactly the descriptor it owns")
+    private func driveDescriptorLifetimeScenario(
+        fixture: DescriptorLifetimeFixture,
+        harness: ZmxTestHarness,
+        zmxDirectoryPath: String
+    ) async -> Result<Void, any Error> {
+        var eventQueueIsSuspended = true
+        var cancelledWaitTask: Task<Data, any Error>?
+        var cancelledWaitJoinStep: HeldStep<Bool>?
+        var cancelledWaitJoinTask: Task<Void, any Error>?
+        var watchedDescriptor: Int32?
+        var cancelHandlerCloseObserved = false
 
         do {
-            _ = try await task.value
-            Issue.record("expected the cancelled wait to throw CancellationError")
-        } catch is CancellationError {
-            // Expected: `recorder.expectNext` inside the function propagates
-            // the cancellation this test requested above.
-        } catch {
-            Issue.record("expected CancellationError, got \(error)")
-        }
+            let task = Task {
+                try await self.awaitSessionIdentityOnRealEvent(
+                    .generateUUIDv7(),
+                    harness: harness,
+                    backend: AlwaysAbsentSessionRestoreProbe(),
+                    zmxDirectory: zmxDirectoryPath,
+                    queue: fixture.testQueue,
+                    directoryOpenFactSink: { descriptor in fixture.openSink("opened", descriptor) },
+                    directoryCloseFactSink: { descriptor in fixture.closeSink("closed", descriptor) },
+                    cancellationRequestedFactSink: { fixture.cancellationRequestedSink("cancelled", ()) }
+                )
+            }
+            cancelledWaitTask = task
 
-        let statResult = fcntl(closedDescriptor, F_GETFD)
-        let statErrno = errno
-        #expect(statResult == -1)
-        #expect(statErrno == EBADF, "an fcntl failure on a closed descriptor must be exactly EBADF")
+            let openedDescriptor = try await fixture.openRecorder.expectNext(
+                in: "opened", where: { _ in true }, "directory open")
+            watchedDescriptor = openedDescriptor
+            #expect(fcntl(openedDescriptor, F_GETFD) != -1, "the descriptor must be open right after opening")
+
+            let joinStep = HeldStep<Bool>("cancelled directory wait has unwound while its cancel handler is held")
+            cancelledWaitJoinStep = joinStep
+            let joinTask = Task {
+                let wasCancelled: Bool
+                do {
+                    _ = try await task.value
+                    wasCancelled = false
+                } catch is CancellationError {
+                    wasCancelled = true
+                } catch {
+                    wasCancelled = false
+                }
+                try await joinStep.arrive(wasCancelled)
+            }
+            cancelledWaitJoinTask = joinTask
+
+            task.cancel()
+            _ = try await fixture.cancellationRequestedRecorder.expectNext(
+                in: "cancelled", where: { _ in true }, "cancellation requested")
+            let wasCancelled = try await joinStep.firstArrival()
+            #expect(wasCancelled, "the real-event wait must finish with CancellationError")
+            #expect(
+                fcntl(openedDescriptor, F_GETFD) != -1,
+                "the descriptor must remain open after the cancelled wait has unwound")
+
+            fixture.testQueue.resume()
+            eventQueueIsSuspended = false
+            let closedDescriptor = try await fixture.closeRecorder.expectNext(
+                in: "closed", where: { _ in true }, "directory close")
+            cancelHandlerCloseObserved = true
+            #expect(
+                closedDescriptor == openedDescriptor,
+                "the cancel handler must close exactly the descriptor it owns")
+            let statResult = fcntl(closedDescriptor, F_GETFD)
+            let statErrno = errno
+            #expect(statResult == -1)
+            #expect(statErrno == EBADF, "an fcntl failure on a closed descriptor must be exactly EBADF")
+
+            joinStep.release()
+            try await joinTask.value
+            return .success(())
+        } catch {
+            cancelledWaitTask?.cancel()
+            if eventQueueIsSuspended {
+                fixture.testQueue.resume()
+                eventQueueIsSuspended = false
+            }
+            cancelledWaitJoinStep?.release()
+            if let cancelledWaitTask {
+                _ = try? await cancelledWaitTask.value
+            }
+            if let cancelledWaitJoinTask {
+                try? await cancelledWaitJoinTask.value
+            }
+            if let watchedDescriptor, !cancelHandlerCloseObserved {
+                _ = try? await fixture.closeRecorder.expectNext(
+                    in: "closed", where: { $0 == watchedDescriptor }, "directory close during test cleanup")
+                cancelHandlerCloseObserved = true
+            }
+            return .failure(error)
+        }
     }
 
     /// Carries the real file descriptor number as its fact value, so this

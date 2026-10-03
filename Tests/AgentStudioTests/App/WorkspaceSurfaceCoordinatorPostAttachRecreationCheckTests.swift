@@ -278,6 +278,60 @@ struct PostAttachRecreationCheckWiringTests {
         #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil)
     }
 
+    /// A6 / R3-2 (Lead decision 2026-10-02): abnormal child exit leaves the
+    /// Process Exited surface registered. The existing child-exit ingress
+    /// must close a warm pane's pending pre-render check without tearing
+    /// down or replacing that view; a stale first-render callback is inert.
+    @Test("child exit closes a pending check while preserving the mounted view")
+    func childExitClosesPendingCheckWithoutReplacingMountedView() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let probe = ScriptedProbe()
+        probe.observedIdentity = Data([9, 9, 9])
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-child-exit")
+        let mountedHost = PaneHostView(paneId: pane.id)
+        let mountedTerminal = TerminalPaneMountView(paneId: pane.id, title: "Process Exited")
+        mountedHost.mountContentView(mountedTerminal)
+        coordinator.viewRegistry.register(mountedHost, for: pane.id)
+        defer { Ghostty.ActionRouter.bindAttachClientExitedHandler(nil) }
+        Ghostty.ActionRouter.bindAttachClientExitedHandler { paneID in
+            coordinator.receivePostAttachChildExited(paneID: paneID)
+        }
+
+        // Act: first render is held by withholding its callback. The real
+        // child-exit binding ingress must settle the pending registration.
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: Data([1, 2, 3]),
+                fallback: makeFallbackPlan(sessionIDText: "as-post-attach-child-exit")))
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] != nil)
+        Ghostty.ActionRouter.reportColdStartAttachClientExited(paneID: pane.id)
+
+        // Assert the exact unavailable disposition, no probe, no pending
+        // entry, and the same Process Exited view still mounted.
+        let registrationClosed = coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil
+        #expect(registrationClosed, "the child-exit ingress must close its pending registration synchronously")
+        if registrationClosed {
+            try await recorder.expectNext(in: pane.id, .uncheckable(.paneUnavailableBeforeFirstRender))
+        }
+        #expect(probe.observeCallCount == 0)
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil)
+        #expect(coordinator.viewRegistry.view(for: pane.id) === mountedHost)
+        #expect(mountedHost.mountedContent(as: TerminalPaneMountView.self) === mountedTerminal)
+
+        // A late first render cannot start a second disposition or probe.
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
+        #expect(probe.observeCallCount == 0)
+        #expect(coordinator.postAttachRecreationCheckTasksByPaneID[pane.id] == nil)
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil)
+        #expect(coordinator.viewRegistry.view(for: pane.id) === mountedHost)
+    }
+
     /// A6 (Lead decision, push design): proves the check genuinely waits
     /// for `receivePostAttachFirstRender`, not merely that the two values
     /// happen to differ -- the probe is still untouched right after

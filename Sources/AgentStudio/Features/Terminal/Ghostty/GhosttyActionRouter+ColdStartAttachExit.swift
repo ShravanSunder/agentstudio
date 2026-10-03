@@ -16,6 +16,7 @@ import Foundation
 @MainActor
 package final class ColdStartAttachExitBinding {
     private var observersByPaneID: [UUID: ColdStartObserver] = [:]
+    private var attachClientExitedHandler: (@MainActor (UUID) -> Void)?
 
     package init() {}
 
@@ -34,9 +35,15 @@ package final class ColdStartAttachExitBinding {
         observersByPaneID.removeValue(forKey: paneID)
     }
 
+    package func bindAttachClientExitedHandler(_ handler: (@MainActor (UUID) -> Void)?) {
+        attachClientExitedHandler = handler
+    }
+
     package func reportAttachClientExited(paneID: UUID) {
-        guard let observer = observersByPaneID[paneID] else { return }
-        Task { await observer.reportAttachClientExited() }
+        if let observer = observersByPaneID[paneID] {
+            Task { await observer.reportAttachClientExited() }
+        }
+        attachClientExitedHandler?(paneID)
     }
 
     /// Program Design item 4, "removes its kqueue registrations and settles
@@ -54,6 +61,11 @@ package final class ColdStartAttachExitBinding {
 @MainActor private let coldStartAttachExitBinding = ColdStartAttachExitBinding()
 
 extension Ghostty.ActionRouter {
+    @MainActor
+    package static func bindAttachClientExitedHandler(_ handler: (@MainActor (UUID) -> Void)?) {
+        coldStartAttachExitBinding.bindAttachClientExitedHandler(handler)
+    }
+
     @MainActor
     package static func registerColdStartAttachExitObserver(paneID: UUID, observer: ColdStartObserver) {
         coldStartAttachExitBinding.register(paneID: paneID, observer: observer)

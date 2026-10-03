@@ -10,6 +10,9 @@ extension AppDelegate {
         self.paneActivityClock = paneActivityClock
         workspaceSurfaceCoordinator?.paneActivityClock = paneActivityClock
         Task { await paneActivityClock.start() }
+        Ghostty.ActionRouter.bindAttachClientExitedHandler { [weak self] paneID in
+            self?.workspaceSurfaceCoordinator?.receivePostAttachChildExited(paneID: paneID)
+        }
         terminalActivityRouter = TerminalActivityRouter(
             bus: bus,
             activityAtom: atomStore.terminalActivity,

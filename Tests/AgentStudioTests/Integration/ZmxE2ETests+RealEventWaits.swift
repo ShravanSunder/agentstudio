@@ -101,19 +101,12 @@ extension E2ESerializedTests.ZmxE2ETests {
         queue: DispatchQueue = .global(qos: .userInitiated),
         directoryOpenFactSink: @escaping @Sendable (Int32) -> Void = { _ in },
         directoryCloseFactSink: @escaping @Sendable (Int32) -> Void = { _ in },
-        // R3-3 item 2 (review round 3, Lead decision 2026-10-02): fires
-        // once this function's own unwind reaches `eventSource.cancel()`
-        // -- a no-op in production (default `{}`). `dispatch_source_cancel`
-        // itself is non-blocking (source.h:512): it requests cancellation
-        // without needing `queue` to be resumed, so this fact is
-        // observable the moment this function has processed its own
-        // cancellation, well before the cancel handler (queued on `queue`)
-        // can actually run and close the descriptor. A lifetime test can
-        // await this fact before asserting "still open," making that
-        // assertion discriminating against the regression it names (a
-        // bare `defer { close(...) }` that closed at this exact point
-        // instead) rather than true in both cases simply because nothing
-        // has run yet.
+        // R3-3b (review round 3, Lead decision 2026-10-02): fires once this
+        // function requests cancellation -- a no-op in production (default
+        // `{}`). `dispatch_source_cancel` is non-blocking (source.h:512), so
+        // this fact comes before the cancel handler can run. By itself it
+        // does not prove safe descriptor lifetime; the lifetime test also
+        // joins this wait's unwind while the target queue remains held.
         cancellationRequestedFactSink: @escaping @Sendable () -> Void = {}
     ) async throws -> Data {
         let directoryFileDescriptor = open(zmxDirectory, O_EVTONLY)

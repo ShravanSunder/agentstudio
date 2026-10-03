@@ -711,15 +711,11 @@ struct ColdStartObserverTests {
     ///    WatchSourceOwnershipTests.swift`), this test never re-enters the
     ///    actor afterward, so it does not need that test's stronger
     ///    before-`cancel()`-can-enter-the-actor guarantee.
-    /// 2. R3-3 item 2 (Lead decision 2026-10-02), now closed: a real write
-    ///    event could mask removal of the mandatory registration check,
-    ///    since both land on the same queue and this test's one assertion
-    ///    alone could not tell which handler served it. Closed via
-    ///    `ColdStartObserver`'s owner-local fact sink
-    ///    (`ColdStartObserverFacts.swift`, mirroring
-    ///    `TerminalActivityProjector`'s): `checkForSocketAndAdvance` posts
-    ///    `.socketCheckRan(.registration)` unconditionally, before its
-    ///    existence guard.
+    /// 2. R3-3 item 2 (Lead decision 2026-10-02), now closed: the
+    ///    `DispatchQueue.getSpecific` witness below proves the registration
+    ///    fact was emitted from the injected target queue's handler. The
+    ///    provenance tag alone cannot distinguish that handler from an
+    ///    immediate actor call after `resume()`.
     ///
     /// Gate 5 fix (Lead 2026-10-02): the registration handler's block itself
     /// runs on `testQueue` (`beginDiscovery`'s `DispatchSource.makeFileSystemObjectSource(...,
@@ -742,6 +738,8 @@ struct ColdStartObserverTests {
         let socketPath = temporaryDirectory.appending(path: "session").path
 
         let testQueue = DispatchQueue(label: "cold-start-observer-a2-test-queue", qos: .userInitiated)
+        let registrationQueueKey = DispatchSpecificKey<Bool>()
+        testQueue.setSpecific(key: registrationQueueKey, value: true)
         testQueue.suspend()
 
         let syscalls = ScriptedSyscalls()
@@ -764,9 +762,22 @@ struct ColdStartObserverTests {
             vocabulary: FactVocabulary<String, ColdStartObserverFact>(
                 describeScope: { $0 }, describeFact: { "\($0)" }, isClosing: { _, _ in false }))
         let observerFactRecorder = try observerFactSource.attach()
+        let registrationContextSource = LocalFactSource(
+            vocabulary: FactVocabulary<String, Bool>(
+                describeScope: { $0 }, describeFact: { "registration handler on target queue: \($0)" },
+                isClosing: { _, _ in false }))
+        let registrationContextRecorder = try registrationContextSource.attach()
         let observer = ColdStartObserver(
             syscalls: syscalls, targetQueue: testQueue,
-            factSink: { fact in observerFactSource.sink("coldStartFact", fact) })
+            factSink: { fact in
+                if case .socketCheckRan(.registration) = fact {
+                    registrationContextSource.sink(
+                        "registrationContext",
+                        DispatchQueue.getSpecific(key: registrationQueueKey) ?? false
+                    )
+                }
+                observerFactSource.sink("coldStartFact", fact)
+            })
 
         // Act
         async let outcome = observer.observeColdStart(
@@ -776,11 +787,10 @@ struct ColdStartObserverTests {
             attemptID: ColdRestoreAttemptID.generate()
         )
 
-        // R2-4 item 4: waits for `beginDiscovery` to have actually entered
-        // and progressed through its own non-suspending body -- not merely
-        // for `async let` to have started a child task -- before creating
-        // the file. By the time this returns, `source.resume()` has
-        // unconditionally already run.
+        // Wait for beginDiscovery's open call before creating the file. This
+        // fact is emitted before the source is constructed or resumed; the
+        // queue-specific witness below independently proves which handler
+        // later ran the mandatory check.
         try await directoryOpenCallRecorder.expectNext(in: ScriptedSyscalls.directoryOpenScope, 1)
 
         // The file exists before either handler's block can actually run --
@@ -793,6 +803,7 @@ struct ColdStartObserverTests {
         // check would never post this, leaving only a later
         // `.directoryEvent` fact (or none) here instead.
         _ = try await observerFactRecorder.expectNext(in: "coldStartFact", .socketCheckRan(.registration))
+        _ = try await registrationContextRecorder.expectNext(in: "registrationContext", true)
 
         // Assert: that same check observed the file it just created and
         // proceeded to attempt the connect.

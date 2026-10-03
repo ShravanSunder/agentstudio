@@ -322,6 +322,19 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         )
     }
 
+    /// Closes a still-pending warm/unverified check when Ghostty reports the
+    /// attach child exited. The Process Exited view remains mounted; only
+    /// the check tied to its not-yet-rendered mount is removed.
+    func receivePostAttachChildExited(paneID: UUID) {
+        closePendingPostAttachRecreationCheck(paneID: paneID)
+    }
+
+    /// Shared one-disposition close for child exit and ordinary view teardown.
+    func closePendingPostAttachRecreationCheck(paneID: UUID) {
+        guard pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneID) != nil else { return }
+        postAttachRecreationCheckFactSink?(paneID, .uncheckable(.paneUnavailableBeforeFirstRender))
+    }
+
     /// A6 (Lead decision, push design): called by `TerminalActivityRouter`'s
     /// injected `onFirstRender` callback -- a synchronous set-lookup plus a
     /// task start, no new actor hop (both types are `@MainActor`). A pane

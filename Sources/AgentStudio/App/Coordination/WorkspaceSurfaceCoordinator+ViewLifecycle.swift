@@ -540,15 +540,9 @@ extension WorkspaceSurfaceCoordinator {
         }
         refreshBridgePaneActivities()
 
-        // R3-2 (Lead decision 2026-10-02): the mount a still-pending
-        // post-attach check was registered against is gone now, and
-        // nothing re-registers one on this path -- same reason and
-        // one-disposition shape as `retirePanesPermanently`'s existing
-        // close (WorkspaceSurfaceCoordinator.swift), for the
-        // ordinary-teardown/unmount case that one does not cover.
-        if pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneId) != nil {
-            postAttachRecreationCheckFactSink?(paneId, .uncheckable(.paneUnavailableBeforeFirstRender))
-        }
+        // R3-2 (Lead decision 2026-10-02): ordinary teardown and child exit
+        // close the same pending mount check with one unavailable outcome.
+        closePendingPostAttachRecreationCheck(paneID: paneId)
 
         if shouldUnregisterRuntime {
             let runtimePaneId = PaneId(existingUUID: paneId)
