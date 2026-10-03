@@ -30,7 +30,12 @@ struct CLIHookSilenceScriptTests {
         if invocation.condition != .down { try fixture.start() }
         let payload = try invocation.payload()
         let payloadURL = try fixture.writePayload(payload)
-        let environment = fixture.environment(executable: executable)
+        if invocation.storeSetting == .fresh {
+            let initialStore = try await valueFromDedicatedThread { try fixture.storeOutcome() }
+            #expect(!initialStore.exists)
+            #expect(initialStore.creatorFiles.isEmpty)
+        }
+        let environment = fixture.environment(executable: executable, storeSetting: invocation.storeSetting)
         let output: ExitedProcessOutput
         do {
             output = try await runProcessToExit(
@@ -45,9 +50,14 @@ struct CLIHookSilenceScriptTests {
             throw error
         }
         await fixture.shutdown()
+        let storeOutcome = try await valueFromDedicatedThread { try fixture.storeOutcome() }
         #expect(output.terminationStatus == 0)
         #expect(output.standardOutput.isEmpty)
         #expect(output.standardError.isEmpty)
+        if invocation.storeSetting == .fresh {
+            #expect(storeOutcome.exists == invocation.expectsPublishedStore)
+            #expect(storeOutcome.creatorFiles.isEmpty)
+        }
         if invocation.condition == .outsidePane {
             #expect(fixture.requests.isEmpty)
         } else if invocation.isProjected, invocation.condition != .down {
@@ -67,24 +77,54 @@ enum HookSilenceCondition: CaseIterable, Sendable {
     case outsidePane
 }
 
+enum HookSilenceStoreSetting: CaseIterable, Sendable {
+    case unset
+    case fresh
+}
+
 struct HookSilenceInvocation: Sendable {
     let provider: String
     let event: String
     let condition: HookSilenceCondition
+    let storeSetting: HookSilenceStoreSetting
 
     static var matrix: [Self] {
         let verbs =
             ClaudeCodeHookEvent.allCases.map { (provider: "claude", event: $0.rawValue) }
             + CodexHookEventName.allCases.map { (provider: "codex", event: $0.rawValue) }
-        return verbs.flatMap { verb in
-            HookSilenceCondition.allCases.map { Self(provider: verb.provider, event: verb.event, condition: $0) }
+        let ordinaryCases: [Self] = verbs.flatMap { verb in
+            HookSilenceCondition.allCases.flatMap { condition in
+                let settings: [HookSilenceStoreSetting] =
+                    condition == .slow ? [.unset] : HookSilenceStoreSetting.allCases
+                return settings.map { setting in
+                    Self(provider: verb.provider, event: verb.event, condition: condition, storeSetting: setting)
+                }
+            }
         }
+        // Preserve every existing slow case; add only one fresh-store timeout per provider.
+        let slowFreshCases: [Self] = [
+            Self(
+                provider: "claude", event: ClaudeCodeHookEvent.sessionStart.rawValue, condition: .slow,
+                storeSetting: .fresh),
+            Self(
+                provider: "codex", event: CodexHookEventName.sessionStart.rawValue, condition: .slow,
+                storeSetting: .fresh),
+        ]
+        return ordinaryCases + slowFreshCases
     }
 
     var isProjected: Bool {
         if provider == "claude" { return true }
         guard let name = CodexHookEventName(rawValue: event) else { return false }
         return CodexHookProjection.isProjected(name)
+    }
+
+    var expectsPublishedStore: Bool {
+        guard isProjected else { return false }
+        switch condition {
+        case .up, .refusing: return true
+        case .down, .slow, .outsidePane: return false
+        }
     }
 
     func payload() throws -> String {
@@ -148,10 +188,26 @@ private final class HookSilenceProcessFixture: @unchecked Sendable {
         return url
     }
 
-    func environment(executable: URL) -> [String: String] {
+    private var storeURL: URL { rootURL.appending(path: "store/cli.sqlite") }
+
+    func environment(executable: URL, storeSetting: HookSilenceStoreSetting) -> [String: String] {
         var result = ["AGENTSTUDIO_CLI": executable.path, "AGENTSTUDIO_IPC_SOCKET": socketPath]
         if condition != .outsidePane { result["AGENTSTUDIO_PANE_TOKEN"] = "hook-silence-fixture-token" }
+        if storeSetting == .fresh {
+            result["AGENTSTUDIO_CLI_STORE"] = storeURL.path
+            result["AGENTSTUDIO_CLI_STORE_CHANNEL"] = "debug"
+        }
         return result
+    }
+
+    func storeOutcome() throws -> HookSilenceStoreOutcome {
+        let directoryURL = storeURL.deletingLastPathComponent()
+        let files =
+            FileManager.default.fileExists(atPath: directoryURL.path)
+            ? try FileManager.default.contentsOfDirectory(atPath: directoryURL.path) : []
+        return HookSilenceStoreOutcome(
+            exists: FileManager.default.fileExists(atPath: storeURL.path),
+            creatorFiles: files.filter { $0.contains(".creating-") })
     }
 
     func start() throws {
@@ -228,4 +284,9 @@ private enum HookSilenceFixtureError: Error {
     case missingBuildDirectory
     case invalidPayload
     case missingEvent
+}
+
+private struct HookSilenceStoreOutcome: Sendable {
+    let exists: Bool
+    let creatorFiles: [String]
 }
