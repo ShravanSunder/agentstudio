@@ -99,8 +99,16 @@ extension AppIPCDeferredInitialization {
         prepareForLaunch: @escaping @Sendable () async throws -> Void
     ) async where ReadinessClock.Duration == Duration {
         await readiness.record(.listenerReady)
+        let boundary: LifecycleReportBoundary
         do {
-            let boundary = try await intake.captureListenerReadyBoundary()
+            boundary = try await intake.captureListenerReadyBoundary()
+        } catch {
+            // Store unavailability must not skip the existing launch sweep.
+            _ = try? await prepareForLaunch()
+            await readiness.publish(.unavailable)
+            return
+        }
+        do {
             await readiness.record(.boundaryRead(boundary))
             try await prepareForLaunch()
             await readiness.record(.launchPrepared)

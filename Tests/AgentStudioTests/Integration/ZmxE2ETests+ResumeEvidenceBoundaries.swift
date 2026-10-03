@@ -267,7 +267,7 @@ extension E2ESerializedTests.ZmxE2ETests {
                 reportsToFile: true, holdResume: false, ownership: proof.environment)
             let bootstrapPlan = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
                 .unknown(.observationMismatch),
-                providerIdentifier: provider, providerSessionId: proof.sessionID, to: replacement.plan)
+                providerIdentifier: provider, providerSessionId: proof.sessionID, to: replacement.basePlan)
             let driver = try await replacement.launch(plan: bootstrapPlan)
             do {
                 _ = try await driver.expectInteractiveShell()

@@ -192,7 +192,16 @@ extension AppDelegate {
             guard
                 let composition = try await makeAppIPCServer(
                     sessionsIngestion: sessionsIngestion, datastore: workspaceSQLiteDatastore)
-            else { return }
+            else {
+                do {
+                    _ = try await sessionsIngestion.prepareForLaunch(at: Date())
+                } catch {
+                    appLogger.warning(
+                        "Sessions ingestion skipped: launch preparation failed: \(error.localizedDescription, privacy: .private)"
+                    )
+                }
+                return
+            }
             try composition.server.start()
             appIPCServer = composition.server
             await initializeLifecycleIntake(composition.intake, ingestion: sessionsIngestion)
@@ -201,6 +210,13 @@ extension AppDelegate {
             startPaneCLIOutboxDrain(sessionsIngestion: sessionsIngestion, datastore: workspaceSQLiteDatastore)
             recordAppIPCStart()
         } catch {
+            do {
+                _ = try await sessionsIngestion.prepareForLaunch(at: Date())
+            } catch {
+                appLogger.warning(
+                    "Sessions ingestion skipped: launch preparation failed: \(error.localizedDescription, privacy: .private)"
+                )
+            }
             appLogger.warning(
                 "App IPC server failed to start: \(error.localizedDescription, privacy: .private)")
             if !Task.isCancelled {

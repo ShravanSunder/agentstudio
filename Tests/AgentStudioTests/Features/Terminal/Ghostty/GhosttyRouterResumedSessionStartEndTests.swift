@@ -7,12 +7,8 @@ import Testing
 @testable import AgentStudioTerminal
 
 /// F6 (review round 1, 2026-10-02; PD item 13 "Ending ordered for
-/// SessionStart"): `TerminalActivityRouter.resumedSessionStartSink` always
-/// ends a matched restore phase through the pane-keyed direct path
-/// (`projector.endRestorePhase`), never through the surface-keyed ordered
-/// ingress (`Ghostty.ActionRouter.applyOrderedActivityControl`) that folds
-/// whatever restore-time output the real accumulator is still holding for
-/// that surface first.
+/// SessionStart"): the accumulator's ordered end follows an in-flight
+/// restore aggregate before the projector clears the phase.
 ///
 /// Modeled on `GhosttyRouterRestorePhaseEndDuringDrainTests`: a real surface
 /// registered in `SurfaceManager`, a real
@@ -32,6 +28,7 @@ import Testing
 struct GhosttyRouterResumedSessionStartEndTests {
     private enum DrainFact: Sendable, Equatable {
         case aggregateDelivered
+        case restorePhaseEnded(RestoreGeneration)
     }
 
     private func vocabulary() -> FactVocabulary<UUID, DrainFact> {
@@ -39,14 +36,14 @@ struct GhosttyRouterResumedSessionStartEndTests {
             describeScope: { $0.uuidString },
             describeFact: { String(describing: $0) },
             isClosing: { _, fact in
-                if case .aggregateDelivered = fact { return true }
+                if case .restorePhaseEnded = fact { return true }
                 return false
             }
         )
     }
 
     @Test(
-        "a matched resumed SessionStart ends the phase before the real drain's pending output is folded, opening a window for pre-start output"
+        "a matched resumed SessionStart ends the phase after in-flight restore output, so no window opens"
     )
     func matchedStartEndsBeforePendingOutputIsFolded() async throws {
         let surfaceID = UUIDv7.generate()
@@ -101,6 +98,9 @@ struct GhosttyRouterResumedSessionStartEndTests {
                     source.sink(surfaceID, .aggregateDelivered)
                 } else {
                     await router.consumeTerminalActivityInput(input)
+                    if case .orderedControl(let surfaceID, _, _, .restorePhaseEnded(let generation)) = input {
+                        source.sink(surfaceID, .restorePhaseEnded(generation))
+                    }
                 }
             }
         )
@@ -123,15 +123,11 @@ struct GhosttyRouterResumedSessionStartEndTests {
         )
         _ = try await suspensionPoint.firstArrival()
 
-        // Act -- the matched resumed SessionStart ends the phase while that
-        // real drain is genuinely suspended, still holding the pre-start
-        // output undelivered.
+        // The matched start latches an end behind the in-flight aggregate.
         await router.resumedSessionStartSink(paneID, "codex", sessionIdText)
-        #expect(await projector.isRestorePhaseActive(paneID: paneID) == false)
+        #expect(await projector.isRestorePhaseActive(paneID: paneID))
 
-        // Release the suspended drain: with today's direct-path end, the
-        // phase is already cleared, so the pre-start output it now delivers
-        // is treated as ordinary post-restore activity.
+        // Release the aggregate, then observe the correlated ordered end.
         suspensionPoint.release()
         _ = try await recorder.expectNext(
             in: surfaceID,
@@ -141,12 +137,11 @@ struct GhosttyRouterResumedSessionStartEndTests {
             },
             "aggregateDelivered"
         )
+        try await recorder.expectNext(in: surfaceID, .restorePhaseEnded(generation))
 
-        // Assert -- no unseen or activity window opens for the pre-start
-        // output after the end: on b83e9db86 this fails, because the
-        // aggregate arrives after the end and is admitted as fresh activity,
-        // scheduling its own close timer.
+        #expect(await projector.isRestorePhaseActive(paneID: paneID) == false)
         #expect(await projector.scheduledTimerCount == 0)
+        try await recorder.finish()
     }
 }
 

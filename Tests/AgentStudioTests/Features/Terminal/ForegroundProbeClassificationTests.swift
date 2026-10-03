@@ -16,7 +16,9 @@ struct ForegroundProbeClassificationTests {
             foregroundTestSample(
                 process: foregroundTestProcess(pid: 4101), group: 4101, foregroundGroup: 4100, argv0: "claude"),
         ]
-        #expect(DarwinTerminalForegroundProbe.classify(leader: shell, samples: samples, complete: true) == .shell)
+        #expect(
+            DarwinTerminalForegroundProbe.classify(
+                leader: shell, samples: samples, incompleteLeaders: [], leadersWithVanishedRows: []) == .shell)
     }
 
     @Test(
@@ -29,7 +31,9 @@ struct ForegroundProbeClassificationTests {
             foregroundTestSample(
                 process: foregroundTestProcess(pid: 4200), group: 4200, foregroundGroup: 4200, argv0: argv0),
         ]
-        #expect(DarwinTerminalForegroundProbe.classify(leader: shell, samples: samples, complete: true) == expected)
+        #expect(
+            DarwinTerminalForegroundProbe.classify(
+                leader: shell, samples: samples, incompleteLeaders: [], leadersWithVanishedRows: []) == expected)
     }
 
     @Test("a foreground program that is not a shell or agent is other")
@@ -40,7 +44,9 @@ struct ForegroundProbeClassificationTests {
             foregroundTestSample(
                 process: foregroundTestProcess(pid: 4200), group: 4200, foregroundGroup: 4200, argv0: "vim"),
         ]
-        #expect(DarwinTerminalForegroundProbe.classify(leader: shell, samples: samples, complete: true) == .other)
+        #expect(
+            DarwinTerminalForegroundProbe.classify(
+                leader: shell, samples: samples, incompleteLeaders: [], leadersWithVanishedRows: []) == .other)
     }
 
     @Test("incomplete or empty ps is unknown, never shell", arguments: [false, true])
@@ -48,7 +54,66 @@ struct ForegroundProbeClassificationTests {
         let shell = foregroundTestProcess(pid: 4100)
         let samples =
             empty ? [] : [foregroundTestSample(process: shell, group: 4100, foregroundGroup: 4100, argv0: "/bin/zsh")]
-        #expect(DarwinTerminalForegroundProbe.classify(leader: shell, samples: samples, complete: empty) == .unknown)
+        #expect(
+            DarwinTerminalForegroundProbe.classify(
+                leader: shell, samples: samples, incompleteLeaders: empty ? [] : [shell.pid],
+                leadersWithVanishedRows: []) == .unknown)
+    }
+
+    // MARK: - Per-leader completeness (F3, review round 1, 2026-10-02)
+    //
+    // `classify` moves from one pass-wide `complete: Bool` to two per-leader
+    // sets, `incompleteLeaders`/`leadersWithVanishedRows` (PD 7
+    // classification; RS6/SR11). These three tests are written against that
+    // new shape; they do not compile against today's `classify(leader:
+    // samples:complete:)` on b83e9db86 -- the Lead treats that compile
+    // failure on these exact symbols as the expected RED.
+
+    @Test("an incomplete leader is unknown even when another leader in the same pass is fully readable")
+    func incompleteLeaderIsUnknownIndependentOfOtherLeaders() {
+        let leaderA = foregroundTestProcess(pid: 4700)
+        let leaderB = foregroundTestProcess(pid: 4800)
+        let samplesForB = [
+            foregroundTestSample(process: leaderB, group: 4800, foregroundGroup: 4900, argv0: "/bin/zsh"),
+            foregroundTestSample(
+                process: foregroundTestProcess(pid: 4900), group: 4900, foregroundGroup: 4900, argv0: "claude"),
+        ]
+
+        let resultA = DarwinTerminalForegroundProbe.classify(
+            leader: leaderA, samples: [], incompleteLeaders: [leaderA.pid], leadersWithVanishedRows: [])
+        let resultB = DarwinTerminalForegroundProbe.classify(
+            leader: leaderB, samples: samplesForB, incompleteLeaders: [leaderA.pid], leadersWithVanishedRows: [])
+
+        #expect(resultA == .unknown)
+        #expect(resultB == .claudeCode)
+    }
+
+    @Test("a readable agent foreground row still classifies even when another row for the same leader vanished")
+    func readableAgentRowWinsDespiteVanishedRows() {
+        let leader = foregroundTestProcess(pid: 4700)
+        let samples = [
+            foregroundTestSample(process: leader, group: 4700, foregroundGroup: 4800, argv0: "/bin/zsh"),
+            foregroundTestSample(
+                process: foregroundTestProcess(pid: 4800), group: 4800, foregroundGroup: 4800, argv0: "claude"),
+        ]
+
+        let result = DarwinTerminalForegroundProbe.classify(
+            leader: leader, samples: samples, incompleteLeaders: [], leadersWithVanishedRows: [leader.pid])
+
+        #expect(result == .claudeCode)
+    }
+
+    @Test("a vanished row makes a shell-only leader unknown, never shell")
+    func vanishedRowMakesShellOnlyLeaderUnknownNeverShell() {
+        let leader = foregroundTestProcess(pid: 4700)
+        let samples = [
+            foregroundTestSample(process: leader, group: 4700, foregroundGroup: 4700, argv0: "/bin/zsh")
+        ]
+
+        let result = DarwinTerminalForegroundProbe.classify(
+            leader: leader, samples: samples, incompleteLeaders: [], leadersWithVanishedRows: [leader.pid])
+
+        #expect(result == .unknown)
     }
 
     @Test("one ps pass serves every requested pane and retains only typed process identity")
@@ -74,7 +139,7 @@ struct ForegroundProbeClassificationTests {
             sessionControl: identities,
             readSamples: {
                 reads.increment()
-                return .init(samples: samples, complete: true)
+                return .init(samples: samples, incompleteLeaders: [], leadersWithVanishedRows: [])
             })
         let result = try await probe.probeForeground(of: [firstId, secondId])
         #expect(reads.value() == 1)

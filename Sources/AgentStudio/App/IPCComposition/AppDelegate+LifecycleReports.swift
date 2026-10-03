@@ -44,8 +44,15 @@ extension AppDelegate {
                     _ = try await ingestion.prepareForLaunch(at: Date())
                 }
             } else {
+                let boundary: LifecycleReportBoundary
                 do {
-                    let boundary = try await launchIntake.captureListenerReadyBoundary()
+                    boundary = try await launchIntake.captureListenerReadyBoundary()
+                } catch {
+                    _ = try? await ingestion.prepareForLaunch(at: Date())
+                    appLogger.warning("Lifecycle launch intake unavailable")
+                    return
+                }
+                do {
                     _ = try await ingestion.prepareForLaunch(at: Date())
                     try await launchIntake.takeIn(through: boundary)
                 } catch {

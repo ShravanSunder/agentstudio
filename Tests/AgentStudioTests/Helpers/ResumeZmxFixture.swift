@@ -9,6 +9,7 @@ import Testing
 
 struct ResumeZmxFixture: Sendable {
     let harness: ZmxTestHarness
+    let basePlan: TerminalColdRestorePlan
     let plan: TerminalColdRestorePlan
     let invocation: ResumeInvocation
     let reportPath: String
@@ -107,6 +108,7 @@ struct ResumeZmxFixture: Sendable {
             sessionID: restoreSessionID ?? .generateUUIDv7(), loginShell: URL(fileURLWithPath: "/bin/zsh"),
             folderCandidates: [sessionDirectory],
             notice: .init(linesByCandidateIndex: ["base notice"]), replayFile: nil, resume: nil, attemptID: .generate())
+        basePlan = base
         plan = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
             .interruptedCandidate(invocation),
             providerIdentifier: providerIdentifier, providerSessionId: sessionId.rawValue, to: base)

@@ -31,7 +31,10 @@ package enum TerminalColdRestorePlanBuilder {
         return TerminalColdRestorePlan(
             zmxExecutable: plan.zmxExecutable, zmxDirectory: plan.zmxDirectory, sessionID: plan.sessionID,
             loginShell: plan.loginShell, folderCandidates: plan.folderCandidates,
-            notice: .init(linesByCandidateIndex: plan.folderCandidates.map { _ in notice }),
+            notice: .init(
+                linesByCandidateIndex: plan.notice.linesByCandidateIndex.map {
+                    notice.isEmpty ? $0 : "\($0)\n\(notice)"
+                }),
             replayFile: plan.replayFile, resume: invocation, attemptID: plan.attemptID)
     }
 
@@ -39,7 +42,7 @@ package enum TerminalColdRestorePlanBuilder {
     /// readiness itself could not be checked in time (SR12 defect fix). With
     /// no binding there is no real provider or session id to name, so unlike
     /// `applyingResumeEvidence` this never invents one: every candidate gets
-    /// the same honest, unattributed notice, and resume stays nil because
+    /// the same honest, unattributed notice after its existing restore line, and resume stays nil because
     /// there is nothing to resume into.
     package static func applyingUncheckedAgentStateNotice(to plan: TerminalColdRestorePlan) -> TerminalColdRestorePlan {
         let notice =
@@ -47,7 +50,7 @@ package enum TerminalColdRestorePlanBuilder {
         return TerminalColdRestorePlan(
             zmxExecutable: plan.zmxExecutable, zmxDirectory: plan.zmxDirectory, sessionID: plan.sessionID,
             loginShell: plan.loginShell, folderCandidates: plan.folderCandidates,
-            notice: .init(linesByCandidateIndex: plan.folderCandidates.map { _ in notice }),
+            notice: .init(linesByCandidateIndex: plan.notice.linesByCandidateIndex.map { "\($0)\n\(notice)" }),
             replayFile: plan.replayFile, resume: nil, attemptID: plan.attemptID)
     }
 

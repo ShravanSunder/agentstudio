@@ -13,7 +13,8 @@ package struct ForegroundProcessSample: Sendable {
 
 package struct ForegroundPsPass: Sendable {
     package let samples: [ForegroundProcessSample]
-    package let complete: Bool
+    package let incompleteLeaders: Set<Int32>
+    package let leadersWithVanishedRows: Set<Int32>
 }
 
 package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
@@ -66,7 +67,9 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
                 continue
             }
             let leader = identity.terminalLeader
-            let program = Self.classify(leader: leader, samples: pass.samples, complete: pass.complete)
+            let program = Self.classify(
+                leader: leader, samples: pass.samples, incompleteLeaders: pass.incompleteLeaders,
+                leadersWithVanishedRows: pass.leadersWithVanishedRows)
             let agent = Self.foregroundRows(leader: leader, samples: pass.samples).first {
                 Self.agentProgram(argv0: $0.argv0) == program && (program == .claudeCode || program == .codex)
             }
@@ -77,14 +80,16 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
     }
 
     package static func classify(
-        leader: ProcessIncarnation, samples: [ForegroundProcessSample], complete: Bool
+        leader: ProcessIncarnation, samples: [ForegroundProcessSample], incompleteLeaders: Set<Int32>,
+        leadersWithVanishedRows: Set<Int32>
     ) -> ForegroundProgram {
-        guard complete else { return .unknown }
+        guard !incompleteLeaders.contains(leader.pid) else { return .unknown }
         let foreground = foregroundRows(leader: leader, samples: samples)
         guard !foreground.isEmpty, foreground.allSatisfy({ !$0.argv0.isEmpty }) else { return .unknown }
         for sample in foreground {
             if let agent = agentProgram(argv0: sample.argv0) { return agent }
         }
+        guard !leadersWithVanishedRows.contains(leader.pid) else { return .unknown }
         let shells = ["sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh"]
         return foreground.allSatisfy { shells.contains(binaryName($0.argv0)) } ? .shell : .other
     }
@@ -116,14 +121,19 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
     @concurrent nonisolated private static func readNativeSamples(
         leaders: [ProcessIncarnation], performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     ) async throws -> ForegroundPsPass {
+        let leaderIds = Set(leaders.map(\.pid))
         let result: ProcessResult
         do {
             result = try await AgentStudioPerformanceTraceRecorder.withRestorePhaseScope(.restoreForegroundProbe) {
                 try await DefaultProcessExecutor(performanceTraceRecorder: performanceTraceRecorder).execute(
                     command: "/bin/ps", args: ["-axo", "pid=,pgid=,tpgid="], cwd: nil, environment: nil)
             }
-        } catch is CancellationError { throw CancellationError() } catch { return .init(samples: [], complete: false) }
-        guard result.succeeded else { return .init(samples: [], complete: false) }
+        } catch is CancellationError { throw CancellationError() } catch {
+            return .init(samples: [], incompleteLeaders: leaderIds, leadersWithVanishedRows: [])
+        }
+        guard result.succeeded else {
+            return .init(samples: [], incompleteLeaders: leaderIds, leadersWithVanishedRows: [])
+        }
         let lines = result.stdout.split(separator: "\n")
         let rows = lines.compactMap { line -> (pid: Int32, group: Int32, foreground: Int32)? in
             let fields = line.split(whereSeparator: { $0.isWhitespace })
@@ -132,31 +142,57 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
             else { return nil }
             return (pid, group, foreground)
         }
-        guard rows.count == lines.count else { return .init(samples: [], complete: false) }
-        let leaderIds = Set(leaders.map(\.pid))
-        let foregroundGroups = Set(rows.filter { leaderIds.contains($0.pid) && $0.foreground > 0 }.map(\.foreground))
+        guard rows.count == lines.count else {
+            return .init(samples: [], incompleteLeaders: leaderIds, leadersWithVanishedRows: [])
+        }
+        var foregroundGroupsByLeader: [Int32: Int32] = [:]
+        for row in rows where leaderIds.contains(row.pid) && row.foreground > 0 {
+            foregroundGroupsByLeader[row.pid] = row.foreground
+        }
+        let foregroundGroups = Set(foregroundGroupsByLeader.values)
         let selected = rows.filter { leaderIds.contains($0.pid) || foregroundGroups.contains($0.group) }
+        var incompleteLeaders = leaderIds.subtracting(rows.map(\.pid))
+        var leadersWithVanishedRows: Set<Int32> = []
         var samples: [ForegroundProcessSample] = []
         for row in selected {
             try Task.checkCancellation()
-            guard let sample = readNativeSample(pid: row.pid, readArguments: foregroundGroups.contains(row.group))
-            else { return .init(samples: [], complete: false) }
-            // A group change since ps invalidates this pass instead of calling a
-            // background agent foreground from a mix of two snapshots.
-            guard sample.processGroupId == row.group, sample.foregroundGroupId == row.foreground else {
-                return .init(samples: [], complete: false)
+            let affectedLeaders = leaderIds.filter {
+                $0 == row.pid || foregroundGroupsByLeader[$0] == row.group
             }
-            samples.append(sample)
+            switch readNativeSample(pid: row.pid, readArguments: foregroundGroups.contains(row.group)) {
+            case .sample(let sample):
+                // A group change invalidates only the leaders that own this row.
+                guard sample.processGroupId == row.group, sample.foregroundGroupId == row.foreground else {
+                    incompleteLeaders.formUnion(affectedLeaders)
+                    continue
+                }
+                samples.append(sample)
+            case .vanished:
+                leadersWithVanishedRows.formUnion(affectedLeaders)
+                if leaderIds.contains(row.pid) { incompleteLeaders.insert(row.pid) }
+            case .unreadable:
+                incompleteLeaders.formUnion(affectedLeaders)
+            }
         }
-        return .init(samples: samples, complete: true)
+        return .init(
+            samples: samples, incompleteLeaders: incompleteLeaders,
+            leadersWithVanishedRows: leadersWithVanishedRows)
     }
 
-    private static func readNativeSample(pid: Int32, readArguments: Bool) -> ForegroundProcessSample? {
+    private enum NativeSampleReadResult {
+        case sample(ForegroundProcessSample)
+        case vanished
+        case unreadable
+    }
+
+    private static func readNativeSample(pid: Int32, readArguments: Bool) -> NativeSampleReadResult {
         var information = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &information, size) == size,
-            information.pbi_uid == geteuid(), information.pbi_pid == UInt32(pid)
-        else { return nil }
+        errno = 0
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &information, size) == size else {
+            return errno == ESRCH ? .vanished : .unreadable
+        }
+        guard information.pbi_uid == geteuid(), information.pbi_pid == UInt32(pid) else { return .unreadable }
         let incarnation = ProcessIncarnation(
             pid: pid, startSeconds: information.pbi_start_tvsec, startMicroseconds: information.pbi_start_tvusec)
         var argv0 = ""
@@ -164,12 +200,13 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
             guard case .success(let buffer) = DarwinColdStartObserverSyscalls().readProcessArgumentsBuffer(pid: pid),
                 let argument = ProcessArgumentsBufferParser.argumentVector(in: buffer)?.first,
                 DarwinColdStartObserverSyscalls().leaderState(of: incarnation) == .sameIncarnationAlive
-            else { return nil }
+            else { return .unreadable }
             argv0 = argument
         }
-        return ForegroundProcessSample(
-            incarnation: incarnation, processGroupId: Int32(information.pbi_pgid),
-            foregroundGroupId: Int32(information.e_tpgid), argv0: argv0)
+        return .sample(
+            ForegroundProcessSample(
+                incarnation: incarnation, processGroupId: Int32(information.pbi_pgid),
+                foregroundGroupId: Int32(information.e_tpgid), argv0: argv0))
     }
 }
 

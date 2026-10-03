@@ -277,7 +277,7 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
         let loginShellInvocation = "\(shellEscape(plan.loginShell.path)) -i -l"
         if let resume = plan.resume {
             let resumeArgv = resume.argv.map(shellEscape).joined(separator: " ")
-            let resumeScript = "if \(resumeArgv); then :; else :; fi; exec \(loginShellInvocation)"
+            let resumeScript = "\(resumeArgv); exec \(loginShellInvocation)"
             lines.append("exec \(loginShellInvocation) -c \(shellEscape(resumeScript))")
         } else {
             lines.append("exec \(loginShellInvocation)")

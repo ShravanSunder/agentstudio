@@ -211,7 +211,7 @@ struct ResumeEvidenceZmxProof: Sendable {
             reportsToFile: true, holdResume: beforeRelease != nil, ownership: environment)
         let plan = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
             evidence, providerIdentifier: provider,
-            providerSessionId: binding.providerConversationId, to: fixture.plan)
+            providerSessionId: binding.providerConversationId, to: fixture.basePlan)
         if case .interruptedCandidate(let invocation) = expected {
             try #require(plan.resume == invocation, "candidate must carry the exact expected UUID before launch")
         } else {

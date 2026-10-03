@@ -31,8 +31,8 @@ struct CLILifecycleReadinessTests {
         let plans = try await resolveUnboundColdPane(readiness: .unavailable)
         let expectedNotice =
             "Agent state couldn't be checked before restore; if an agent was running here, resume it manually."
-        let everyNoticeIsHonest = plans.decided.notice.linesByCandidateIndex.allSatisfy { $0 == expectedNotice }
-        #expect(everyNoticeIsHonest)
+        let expectedNotices = plans.base.notice.linesByCandidateIndex.map { "\($0)\n\(expectedNotice)" }
+        #expect(plans.decided.notice.linesByCandidateIndex == expectedNotices)
         #expect(plans.decided.resume == nil)
         #expect(plans.decided.folderCandidates == plans.base.folderCandidates)
         #expect(plans.decided.sessionID == plans.base.sessionID)

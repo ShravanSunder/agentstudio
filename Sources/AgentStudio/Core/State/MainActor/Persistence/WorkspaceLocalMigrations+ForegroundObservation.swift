@@ -11,7 +11,7 @@ extension WorkspaceLocalMigrations {
                         binding_generation_id TEXT,
                         program TEXT NOT NULL,
                         observer_launch_id TEXT NOT NULL,
-                        sequence INTEGER NOT NULL CHECK (sequence >= 0),
+                        sequence INTEGER NOT NULL,
                         observed_at TEXT NOT NULL,
                         identity_version INTEGER NOT NULL,
                         boot_id TEXT NOT NULL,
