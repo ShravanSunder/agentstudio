@@ -17,8 +17,10 @@ package enum ScrollbackPassOutcome: Equatable, Sendable {
 }
 package enum ScrollbackQuitOutcome: Equatable, Sendable { case completed, deadlineExceeded, cancelled }
 
-package enum ScrollbackSnapshotDisposition: Equatable, Sendable {
+package enum ScrollbackSnapshotDisposition: Hashable, Sendable {
     case written
+    case invalidUTF8
+    case keepPrevious
     case unchanged
     case empty
     case deadlineExceeded

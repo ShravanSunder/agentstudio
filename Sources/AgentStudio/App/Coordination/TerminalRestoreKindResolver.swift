@@ -41,7 +41,7 @@ struct TerminalRestoreKindResolver: Sendable {
     init(
         sessionConfiguration: SessionConfiguration,
         probe: (any ZmxSessionRestoreProbing)?,
-        scrollbackStore: ScrollbackStore = ScrollbackStore(),
+        scrollbackStore: ScrollbackStore,
         repositoryMainFolder: @escaping @MainActor (Pane) -> URL?
     ) {
         self.sessionConfiguration = sessionConfiguration

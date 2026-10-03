@@ -253,6 +253,59 @@ struct ScrollbackStoreTests {
         }
     }
 
+    @Test(
+        "a trailing incomplete UTF8 scalar is trimmed before storing",
+        arguments: [[UInt8](arrayLiteral: 0xC2), [0xE2, 0x82], [0xF0, 0x9F, 0x92]])
+    func incompleteTrailingScalarStoresValidPrefix(trailingBytes: [UInt8]) async throws {
+        try await withTemporaryRoot { root in
+            let store = ScrollbackStore(directoryURL: root)
+            let paneID = PaneId.generateUUIDv7()
+            let validPrefix = Data("complete é scalar\r\n".utf8)
+            let outcome = try await store.store(paneId: paneID, capture: validPrefix + Data(trailingBytes))
+            #expect(outcome == .written)
+            #expect(await store.load(paneId: paneID) == .present(ScrollbackStore.resetPrefix + validPrefix))
+            let snapshotURL = store.snapshotURL(for: paneID)
+            let observed = try await withoutBlockingCooperativePool { try Data(contentsOf: snapshotURL) }
+            #expect(observed == ScrollbackStore.resetPrefix + validPrefix)
+        }
+    }
+
+    @Test(
+        "invalid interior UTF8 preserves the previous snapshot and reports a distinct outcome",
+        arguments: [[UInt8](arrayLiteral: 0xFF), [0xC0, 0xAF], [0xED, 0xA0, 0x80], [0xE2, 0x82]])
+    func invalidInteriorBytesDoNotReplaceSnapshot(invalidBytes: [UInt8]) async throws {
+        try await withTemporaryRoot { root in
+            let store = ScrollbackStore(directoryURL: root)
+            let paneID = PaneId.generateUUIDv7()
+            let original = Data("last valid output\r\n".utf8)
+            _ = try await store.store(paneId: paneID, capture: original)
+            let snapshotURL = store.snapshotURL(for: paneID)
+            let metadataBefore = try await fileMetadata(at: snapshotURL)
+            let invalid = Data("invalid prefix".utf8) + Data(invalidBytes) + Data("interior suffix".utf8)
+            let outcome = try await store.store(paneId: paneID, capture: invalid)
+            #expect(outcome == .invalidUTF8)
+            #expect(await store.load(paneId: paneID) == .present(ScrollbackStore.resetPrefix + original))
+            #expect(try await fileMetadata(at: snapshotURL) == metadataBefore)
+        }
+    }
+
+    @Test("leading alternate-screen modes keep the previous snapshot", arguments: ["1049", "1047", "47"])
+    func alternateScreenCaptureKeepsPrevious(mode: String) async throws {
+        try await withTemporaryRoot { root in
+            let store = ScrollbackStore(directoryURL: root)
+            let paneID = PaneId.generateUUIDv7()
+            let original = Data("primary screen retained\r\n".utf8)
+            _ = try await store.store(paneId: paneID, capture: original)
+            let snapshotURL = store.snapshotURL(for: paneID)
+            let metadataBefore = try await fileMetadata(at: snapshotURL)
+            let alternate = Data("\u{1B}[?\(mode)h\u{1B}[?25ltemporary full screen app\r\n".utf8)
+            let outcome = try await store.store(paneId: paneID, capture: alternate)
+            #expect(outcome == .keepPrevious)
+            #expect(await store.load(paneId: paneID) == .present(ScrollbackStore.resetPrefix + original))
+            #expect(try await fileMetadata(at: snapshotURL) == metadataBefore)
+        }
+    }
+
     private func makeWriteBoundarySource() -> LocalFactSource<PaneId, WriteBoundaryFact> {
         LocalFactSource(
             vocabulary: FactVocabulary(

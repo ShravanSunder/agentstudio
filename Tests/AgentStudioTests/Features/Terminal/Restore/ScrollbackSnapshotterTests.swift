@@ -114,7 +114,7 @@ struct ScrollbackSnapshotterTests {
         _ = try await fixture.store.store(paneId: binding.paneID, capture: original)
         let backend = ScrollbackCaptureFixtureBackend(bindings: [binding], results: [:])
         let snapshotter = ScrollbackSnapshotter(
-            clock: fixture.clock, store: fixture.store,
+            clock: fixture.clock, store: fixture.store, performanceRecorder: nil,
             inventory: { await backend.discoverInventory() },
             paneBindings: { throw BindingReadFailure.unavailable }, capture: { await backend.capture($0) },
             factSink: fixture.source.sink)
@@ -214,6 +214,111 @@ struct ScrollbackSnapshotterTests {
             #expect(
                 await fixture.store.load(paneId: added.paneID)
                     == .present(ScrollbackStore.resetPrefix + Data("new pane".utf8)))
+        }
+    }
+
+    @Test("quit refreshes a completed pane while sharing only the pane still in flight")
+    func quitRefreshesCompletedPaneDuringHeldPeriodicFleet() async throws {
+        let fixture = try ScrollbackSnapshotterFixture()
+        let completed = makeBinding()
+        let inFlight = makeBinding()
+        let oldBytes = Data("A before redraw".utf8)
+        let newBytes = Data("A after redraw".utf8)
+        let hold = HeldStep<ZmxSessionID>("B remains in flight after A has completed")
+        defer { hold.release() }
+        let backend = ScrollbackCaptureFixtureBackend(
+            bindings: [completed, inFlight],
+            results: [completed.sessionID: .accepted(oldBytes), inFlight.sessionID: .accepted(Data("B".utf8))],
+            heldCaptures: [inFlight.sessionID: hold])
+        let snapshotter = makeSnapshotter(fixture, backend: backend)
+        let releaseCaptures: @Sendable () -> Void = { hold.release() }
+        try await withSnapshotter(snapshotter, fixture: fixture, releaseHolds: releaseCaptures) {
+            await snapshotter.start()
+            try await fixture.recorder.expectNext(in: .scheduler, .scheduled)
+            await fixture.clock.waitForPendingSleepCount(exactly: 1)
+            fixture.clock.advance(by: AppPolicies.Restore.captureInterval)
+            let periodicPass = try await fixture.nextPass(reason: .periodic)
+            let completedCapture = try await fixture.nextCapture(completed)
+            try await fixture.recorder.expectNext(in: completedCapture, .captureFinished(.written))
+            let sharedCapture = try await fixture.nextCapture(inFlight)
+            let heldSession = try await hold.firstArrival()
+            #expect(heldSession == inFlight.sessionID)
+            #expect(
+                await fixture.store.load(paneId: completed.paneID)
+                    == .present(ScrollbackStore.resetPrefix + oldBytes))
+            await backend.replaceResult(sessionID: completed.sessionID, result: .accepted(newBytes))
+            let requestID = UUIDv7.generate()
+            async let quit = snapshotter.captureForQuit(requestID: requestID, budget: .seconds(1))
+            let quitPass = try await fixture.nextPass(reason: .quit)
+            // This event proves quit has joined B before B is released.
+            // Whether A is refreshed before or after B settles is not prescribed.
+            while true {
+                let observation = try await fixture.recorder.expectNext(
+                    in: quitPass,
+                    where: {
+                        switch $0 {
+                        case .captureAdmitted, .captureJoined: true
+                        default: false
+                        }
+                    }, "quit admission or join through the in-flight B capture")
+                if observation == .captureJoined(inFlight) { break }
+                switch observation {
+                case .captureAdmitted(let binding), .captureJoined(let binding):
+                    #expect(binding == completed)
+                default:
+                    Issue.record("quit must share B before completing its pass")
+                }
+            }
+            hold.release()
+            try await fixture.recorder.expectNext(in: sharedCapture, .captureFinished(.written))
+            try await fixture.finishPass(periodicPass, count: 2)
+            let quitOutcome = await quit
+            #expect(quitOutcome == .completed)
+            try await fixture.finishPass(quitPass, count: 2)
+            #expect(
+                await fixture.store.load(paneId: completed.paneID)
+                    == .present(ScrollbackStore.resetPrefix + newBytes))
+            #expect(await backend.callCount(for: completed.sessionID) == 2)
+            #expect(await backend.callCount(for: inFlight.sessionID) == 1)
+            #expect(await backend.peakConcurrency() <= AppPolicies.Restore.maximumConcurrentCaptures)
+        }
+    }
+
+    @Test(
+        "rejected invalid or alternate output closes with a typed outcome and preserves old bytes",
+        arguments: [
+            Data("bad".utf8) + Data([0xFF]) + Data("interior".utf8),
+            Data("\u{1B}[?1049h\u{1B}[?25ltemporary app".utf8),
+        ])
+    func rejectedCaptureRecordsDisposition(captureBytes: Data) async throws {
+        let fixture = try ScrollbackSnapshotterFixture()
+        let binding = makeBinding()
+        let original = Data("last valid primary output".utf8)
+        _ = try await fixture.store.store(paneId: binding.paneID, capture: original)
+        let backend = ScrollbackCaptureFixtureBackend(
+            bindings: [binding], results: [binding.sessionID: .accepted(captureBytes)])
+        let snapshotter = makeSnapshotter(fixture, backend: backend)
+        try await withSnapshotter(snapshotter, fixture: fixture) {
+            let requestID = UUIDv7.generate()
+            async let quit = snapshotter.captureForQuit(requestID: requestID, budget: .seconds(1))
+            let pass = try await fixture.nextPass(reason: .quit)
+            let capture = try await fixture.nextCapture(binding)
+            let observed = try await fixture.recorder.expectNext(
+                in: capture, where: { if case .captureFinished = $0 { true } else { false } },
+                "typed capture rejection outcome")
+            guard case .captureFinished(let disposition) = observed else {
+                Issue.record("capture must end with its typed disposition")
+                return
+            }
+            let expected: ScrollbackSnapshotDisposition =
+                captureBytes.first == 0x1B ? .keepPrevious : .invalidUTF8
+            #expect(disposition == expected)
+            let quitOutcome = await quit
+            #expect(quitOutcome == .completed)
+            try await fixture.finishPass(pass, count: 1)
+            #expect(
+                await fixture.store.load(paneId: binding.paneID)
+                    == .present(ScrollbackStore.resetPrefix + original))
         }
     }
 
@@ -338,7 +443,7 @@ struct ScrollbackSnapshotterTests {
             results: Dictionary(uniqueKeysWithValues: bindings.map { ($0.sessionID, .accepted(Data("output".utf8))) }),
             heldCaptures: holds)
         let snapshotter = ScrollbackSnapshotter(
-            clock: fixture.clock, store: fixture.store,
+            clock: fixture.clock, store: fixture.store, performanceRecorder: nil,
             inventory: { await backend.discoverInventory() }, paneBindings: { await backend.paneBindings() },
             capture: { await backend.capture($0) }, maximumConcurrentCaptures: 2, factSink: fixture.source.sink)
         let releaseCaptures: @Sendable () -> Void = { for hold in holds.values { hold.release() } }
@@ -396,7 +501,7 @@ struct ScrollbackSnapshotterTests {
         -> ScrollbackSnapshotter
     {
         ScrollbackSnapshotter(
-            clock: fixture.clock, store: fixture.store,
+            clock: fixture.clock, store: fixture.store, performanceRecorder: nil,
             inventory: { await backend.discoverInventory() }, paneBindings: { await backend.paneBindings() },
             capture: { await backend.capture($0) }, factSink: fixture.source.sink)
     }

@@ -16,7 +16,7 @@ extension AppDelegate {
         let workspaceID = store.identityAtom.workspaceId
         let scrollback = scrollbackStore
         workspaceSurfaceCoordinator.scrollbackSnapshotter = ScrollbackSnapshotter(
-            clock: ContinuousClock(), store: scrollback,
+            clock: ContinuousClock(), store: scrollback, performanceRecorder: performanceTraceRecorder,
             inventory: { await backend.discoverSessionInventory() },
             paneBindings: { try await datastore.scrollbackPaneBindings(workspaceID: workspaceID) },
             capture: { await backend.captureHistory($0) }, delay: .taskSleep)

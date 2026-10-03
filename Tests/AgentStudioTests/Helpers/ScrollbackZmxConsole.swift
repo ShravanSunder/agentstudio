@@ -14,7 +14,7 @@ struct ScrollbackZmxConsole: Sendable {
     private let outputPipe: Pipe
     private let marker: String
 
-    static func make(harness: ZmxTestHarness) async throws -> Self {
+    static func make(harness: ZmxTestHarness, alternateScreen: Bool = false) async throws -> Self {
         let zmxPath = try #require(harness.zmxPath)
         let sessionID = ZmxSessionID.generateUUIDv7()
         let root = URL(fileURLWithPath: harness.zmxDir)
@@ -29,8 +29,12 @@ struct ScrollbackZmxConsole: Sendable {
         }
         let marker = UUIDv7.generate().uuidString
         let pipe = Pipe()
+        let modeCommand =
+            alternateScreen
+            ? "printf '\\033[?1049h\\033[?25l\\033[?1000h\\033[?1004h'" : ":"
         let script = """
             read start < \(ZmxBackend.shellEscape(startFIFO.path))
+            \(modeCommand)
             printf '\\033[2J\\033[H  screen ONE\\n\(marker)-one\\n'
             read redraw < \(ZmxBackend.shellEscape(redrawFIFO.path))
             printf '\\033[H  screen TWO\\n\(marker)-two\\n'
@@ -40,15 +44,21 @@ struct ScrollbackZmxConsole: Sendable {
             zmxPath: zmxPath, sessionId: sessionID.rawValue,
             commandArgs: ["/bin/sh", "-c", script], standardOutput: pipe.fileHandleForWriting)
         let console = Self(sessionID: sessionID, redrawFIFO: redrawFIFO, outputPipe: pipe, marker: marker)
-        try await console.readOutput(through: Data("\u{1B}[2J\u{1B}[H".utf8))
+        let clearMarker = Data("\u{1B}[2J\u{1B}[H".utf8)
+        let cleared = try await console.readOutput(through: clearMarker)
+        #expect(cleared.suffix(clearMarker.count) == clearMarker)
         try await releaseFIFO(startFIFO)
-        try await console.readOutput(through: Data("\(marker)-one".utf8))
+        let firstMarker = Data("\(marker)-one".utf8)
+        let initialOutput = try await console.readOutput(through: firstMarker)
+        #expect(initialOutput.suffix(firstMarker.count) == firstMarker)
         return console
     }
 
     func redrawInPlace() async throws {
         try await Self.releaseFIFO(redrawFIFO)
-        try await readOutput(through: Data("\(marker)-two".utf8))
+        let redrawMarker = Data("\(marker)-two".utf8)
+        let observed = try await readOutput(through: redrawMarker)
+        #expect(observed.suffix(redrawMarker.count) == redrawMarker)
     }
 
     func closeHandles() {
@@ -66,13 +76,18 @@ struct ScrollbackZmxConsole: Sendable {
         }
     }
 
-    private func readOutput(through marker: Data) async throws {
-        let handle = outputPipe.fileHandleForReading
+    private func readOutput(through marker: Data) async throws -> Data {
+        try await Self.readOutput(from: outputPipe.fileHandleForReading, through: marker)
+    }
+
+    static func readOutput(from handle: FileHandle, through marker: Data) async throws -> Data {
         try await withoutBlockingCooperativePool {
             var bytes = Data()
             var chunk = [UInt8](repeating: 0, count: 1024)
             while true {
-                if let range = bytes.range(of: marker), range.count == marker.count { return }
+                if let range = bytes.range(of: marker), range.count == marker.count {
+                    return Data(bytes.prefix(upTo: range.upperBound))
+                }
                 let count = chunk.withUnsafeMutableBytes {
                     Darwin.read(handle.fileDescriptor, $0.baseAddress, $0.count)
                 }

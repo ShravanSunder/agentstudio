@@ -22,7 +22,7 @@ struct ScrollbackStartupTerminationTests {
         let source = makeSource()
         let recorder = try source.attach()
         let snapshotter = ScrollbackSnapshotter(
-            clock: captureClock, store: store, inventory: { .complete([:]) },
+            clock: captureClock, store: store, performanceRecorder: nil, inventory: { .complete([:]) },
             paneBindings: { [] }, capture: { _ in .empty }, factSink: source.sink)
         try await withSnapshotter(snapshotter, recorder: recorder, root: root) {
             async let startup = startScrollbackAfterFirstFrame(windowLifecycleStore: window, snapshotter: snapshotter)
@@ -53,7 +53,7 @@ struct ScrollbackStartupTerminationTests {
         let source = makeSource()
         let recorder = try source.attach()
         let snapshotter = ScrollbackSnapshotter(
-            clock: clock, store: store,
+            clock: clock, store: store, performanceRecorder: nil,
             inventory: { .complete([pane.sessionID: .alive(wrapperPid: 1)]) }, paneBindings: { [pane] },
             capture: { _ in .accepted(Data("final output".utf8)) }, factSink: source.sink)
         try await withSnapshotter(snapshotter, recorder: recorder, root: root) {

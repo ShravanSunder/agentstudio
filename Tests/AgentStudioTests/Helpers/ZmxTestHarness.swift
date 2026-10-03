@@ -561,8 +561,8 @@ final class ZmxTestHarness: @unchecked Sendable {
                             outputDescriptor, buffer.baseAddress?.advanced(by: offset), buffer.count - offset)
                         if count < 0, errno == EINTR { continue }
                         guard count > 0 else {
-                            // EPIPE and all other errors retire only the
-                            // tee. Settlement still consumes the same chunk.
+                            // EAGAIN, EPIPE and other errors retire only the
+                            // tee. An unread sink never holds settlement hostage.
                             currentDescriptor = nil
                             _ = Darwin.close(outputDescriptor)
                             return
@@ -588,7 +588,10 @@ final class ZmxTestHarness: @unchecked Sendable {
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         // The harness owns this writer, not the spawned process. Do not let
         // an exec inherit it and keep the caller's EOF artificially open.
-        guard fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0,
+        let outputFlags = fcntl(descriptor, F_GETFL)
+        guard outputFlags >= 0,
+            fcntl(descriptor, F_SETFL, outputFlags | O_NONBLOCK) == 0,
+            fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0,
             fcntl(descriptor, F_SETFD, FD_CLOEXEC) == 0
         else {
             let failure = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)

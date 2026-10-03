@@ -4,6 +4,8 @@ import Foundation
 
 package enum ScrollbackWriteResult: Equatable, Sendable {
     case written
+    case invalidUTF8
+    case keepPrevious
     case unchanged
     case retired
 }
@@ -20,6 +22,12 @@ package enum ScrollbackLoadResult: Equatable, Sendable {
     case present(Data)
     case absent
     case unreadable(ScrollbackUnreadableReason)
+}
+
+/// Bytes count only a successfully committed persisted form, not a staged file.
+struct ScrollbackWriteMeasurement: Sendable {
+    let result: ScrollbackWriteResult
+    let writtenBytes: Int
 }
 
 /// A file repository, not observable UI state. Tombstones exclude writes for
@@ -73,32 +81,44 @@ package actor ScrollbackStore {
     }
 
     package func store(paneId: PaneId, capture: Data) async throws -> ScrollbackWriteResult {
-        guard !retiredPaneIDs.contains(paneId) else { return .retired }
-        guard !capture.isEmpty else { return .unchanged }
+        try await storeWithMeasurement(paneId: paneId, capture: capture).result
+    }
+
+    func storeWithMeasurement(paneId: PaneId, capture: Data) async throws -> ScrollbackWriteMeasurement {
+        guard !retiredPaneIDs.contains(paneId) else { return .init(result: .retired, writtenBytes: 0) }
+        guard !capture.isEmpty else { return .init(result: .unchanged, writtenBytes: 0) }
         let snapshotURL = snapshotURL(for: paneId)
         let prepared = try await ScrollbackStoreFileAccess.prepare(capture, snapshotURL: snapshotURL, byteCap: byteCap)
         switch prepared {
-        case .unchanged:
+        case .invalidUTF8, .keepPrevious, .unchanged:
             try Task.checkCancellation()
-            return retiredPaneIDs.contains(paneId) ? .retired : .unchanged
-        case .staged(let temporaryURL):
+            let result: ScrollbackWriteResult
+            if retiredPaneIDs.contains(paneId) {
+                result = .retired
+            } else {
+                switch prepared {
+                case .invalidUTF8: result = .invalidUTF8
+                case .keepPrevious: result = .keepPrevious
+                default: result = .unchanged
+                }
+            }
+            return .init(result: result, writtenBytes: 0)
+        case .staged(let temporaryURL, let byteCount):
             do {
                 try Task.checkCancellation()
                 if retiredPaneIDs.contains(paneId) {
                     await ScrollbackStoreFileAccess.discard(temporaryURL)
-                    return .retired
+                    return .init(result: .retired, writtenBytes: 0)
                 }
                 try await beforeRename(paneId)
                 try Task.checkCancellation()
                 guard !retiredPaneIDs.contains(paneId) else {
                     await ScrollbackStoreFileAccess.discard(temporaryURL)
-                    return .retired
+                    return .init(result: .retired, writtenBytes: 0)
                 }
-                // One bounded rename remains under the actor with no
-                // suspension after the tombstone check. Bulk I/O ran on
-                // FileAccess's queue; retirement cannot interleave here.
+                // Rename and tombstone admission remain one bounded actor step.
                 try ScrollbackStoreFileAccess.commit(temporaryURL, to: snapshotURL)
-                return .written
+                return .init(result: .written, writtenBytes: byteCount)
             } catch {
                 await ScrollbackStoreFileAccess.discard(temporaryURL)
                 throw error

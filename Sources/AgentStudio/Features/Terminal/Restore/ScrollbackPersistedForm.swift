@@ -1,9 +1,10 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
 
 /// Pure byte-domain rules. No decoding/re-encoding alters captured bytes.
 enum ScrollbackPersistedForm {
-    static let resetPrefix = Data("\u{1B}c".utf8)
+    static let resetPrefix = ScrollbackReplayFrame.resetPrefix
     static let truncationMarker = Data("[older output omitted]\r\n".utf8)
 
     static func make(_ capture: Data, byteCap: Int) -> Data {
@@ -19,6 +20,78 @@ enum ScrollbackPersistedForm {
         var persisted = header
         persisted.append(capture.suffix(capture.count - cutOffset))
         return persisted
+    }
+
+    /// Only a valid, incomplete trailing scalar is cut. Invalid interior,
+    /// overlong and surrogate bytes remain for the shared validator to reject.
+    static func trimmingIncompleteUTF8Suffix(_ capture: Data) -> Data {
+        let offset = capture.withUnsafeBytes { rawBytes -> Int in
+            let bytes = rawBytes.bindMemory(to: UInt8.self)
+            guard !bytes.isEmpty else { return 0 }
+            var start = bytes.count - 1
+            while start > 0, bytes[start] & 0xC0 == 0x80, bytes.count - start <= 3 { start -= 1 }
+            let width: Int
+            switch bytes[start] {
+            case 0xC2...0xDF: width = 2
+            case 0xE0...0xEF: width = 3
+            case 0xF0...0xF4: width = 4
+            default: return bytes.count
+            }
+            guard bytes.count - start < width else { return bytes.count }
+            for index in (start + 1)..<bytes.count {
+                guard bytes[index] & 0xC0 == 0x80 else { return bytes.count }
+            }
+            if start + 1 < bytes.count {
+                let second = bytes[start + 1]
+                switch bytes[start] {
+                case 0xE0 where second < 0xA0, 0xED where second > 0x9F,
+                    0xF0 where second < 0x90, 0xF4 where second > 0x8F:
+                    return bytes.count
+                default: break
+                }
+            }
+            return start
+        }
+        return offset == capture.count ? capture : Data(capture.prefix(offset))
+    }
+
+    private enum ModeBlockDecodingError: Error { case invalidUTF8 }
+
+    /// Policy for the serializer's leading mode block, not later replayed
+    /// application text. One function owns the provisional keepPrevious choice.
+    static func isAlternateScreenCapture(_ capture: Data) throws -> Bool {
+        try capture.withUnsafeBytes { rawBytes in
+            let bytes = rawBytes.bindMemory(to: UInt8.self)
+            var offset = 0
+            var alternateScreen = false
+            while offset + 1 < bytes.count, bytes[offset] == 0x1B {
+                if bytes[offset + 1] == 0x63 {
+                    alternateScreen = false
+                    offset += 2
+                    continue
+                }
+                if [0x28, 0x29, 0x2A, 0x2B].contains(bytes[offset + 1]), offset + 2 < bytes.count {
+                    offset += 3
+                    continue
+                }
+                guard bytes[offset + 1] == 0x5B else { break }
+                let start = offset + 2
+                var end = start
+                while end < bytes.count, (0x20...0x3F).contains(bytes[end]) { end += 1 }
+                guard end < bytes.count, (0x40...0x7E).contains(bytes[end]) else { break }
+                if start < end, bytes[start] == 0x3F, bytes[end] == 0x68 || bytes[end] == 0x6C {
+                    guard let parameters = String(bytes: bytes[(start + 1)..<end], encoding: .utf8) else {
+                        throw ModeBlockDecodingError.invalidUTF8
+                    }
+                    let modes = parameters.split(separator: ";")
+                    if modes.contains(where: { $0 == "1049" || $0 == "1047" || $0 == "47" }) {
+                        alternateScreen = bytes[end] == 0x68
+                    }
+                }
+                offset = end + 1
+            }
+            return alternateScreen
+        }
     }
 
     /// Parse from the beginning: a local look-behind cannot distinguish

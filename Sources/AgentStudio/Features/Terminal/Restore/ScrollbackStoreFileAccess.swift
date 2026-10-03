@@ -6,7 +6,9 @@ import Foundation
 
 enum ScrollbackPreparedWrite: Sendable {
     case unchanged
-    case staged(URL)
+    case invalidUTF8
+    case keepPrevious
+    case staged(URL, byteCount: Int)
 }
 
 private enum SnapshotFileReadResult {
@@ -28,11 +30,7 @@ enum ScrollbackStoreFileAccess {
                 case .absent: return .absent
                 case .failed(let reason): return .unreadable(reason)
                 case .bytes(let bytes):
-                    guard !bytes.isEmpty else { return .unreadable(.empty) }
-                    let body =
-                        bytes.starts(with: ScrollbackPersistedForm.resetPrefix)
-                        ? Data(bytes.dropFirst(ScrollbackPersistedForm.resetPrefix.count)) : bytes
-                    guard String(data: body, encoding: .utf8) != nil else { return .unreadable(.invalidUTF8) }
+                    if let reason = validationFailure(bytes, byteCap: byteCap) { return .unreadable(reason) }
                     return .present(bytes)
                 }
             }
@@ -44,7 +42,20 @@ enum ScrollbackStoreFileAccess {
         static func prepare(_ capture: Data, snapshotURL: URL, byteCap: Int) async throws -> ScrollbackPreparedWrite
     {
         try await performFileIO {
-            let persisted = ScrollbackPersistedForm.make(capture, byteCap: byteCap)
+            let trimmed = ScrollbackPersistedForm.trimmingIncompleteUTF8Suffix(capture)
+            guard String(data: trimmed, encoding: .utf8) != nil else { return .invalidUTF8 }
+            guard !trimmed.isEmpty else { return .unchanged }
+            let alternateScreen: Bool
+            do {
+                alternateScreen = try ScrollbackPersistedForm.isAlternateScreenCapture(trimmed)
+            } catch {
+                // The whole capture was validated above; decoding failure
+                // still rejects through the same typed invalid-output path.
+                return .invalidUTF8
+            }
+            guard !alternateScreen else { return .keepPrevious }
+            let persisted = ScrollbackPersistedForm.make(trimmed, byteCap: byteCap)
+            guard validationFailure(persisted, byteCap: byteCap) == nil else { return .invalidUTF8 }
             let digest = SHA256.hash(data: persisted)
             if case .bytes(let existing) = readFileBytes(snapshotURL, byteCap: byteCap),
                 SHA256.hash(data: existing) == digest
@@ -57,7 +68,7 @@ enum ScrollbackStoreFileAccess {
             let temporaryURL = directory.appending(
                 path: ".\(snapshotURL.lastPathComponent).\(UUIDv7.generate().uuidString).tmp")
             try writeOwnerOnly(persisted, to: temporaryURL)
-            return .staged(temporaryURL)
+            return .staged(temporaryURL, byteCount: persisted.count)
         }
     }
 
@@ -87,6 +98,16 @@ enum ScrollbackStoreFileAccess {
             }
             if let firstError { throw firstError }
         }
+    }
+
+    /// Both publication and load admit the same persisted byte domain.
+    private static func validationFailure(_ bytes: Data, byteCap: Int) -> ScrollbackUnreadableReason? {
+        guard !bytes.isEmpty else { return .empty }
+        guard bytes.count <= byteCap else { return .oversized }
+        let body =
+            bytes.starts(with: ScrollbackPersistedForm.resetPrefix)
+            ? Data(bytes.dropFirst(ScrollbackPersistedForm.resetPrefix.count)) : bytes
+        return String(data: body, encoding: .utf8) == nil ? .invalidUTF8 : nil
     }
 
     private static func readFileBytes(_ url: URL, byteCap: Int) -> SnapshotFileReadResult {

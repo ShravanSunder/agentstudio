@@ -118,7 +118,8 @@ private struct RealSnapshotterFixture {
                 }))
         recorder = try source.attach()
         snapshotter = ScrollbackSnapshotter(
-            clock: clock, store: store, inventory: { await backend.discoverSessionInventory() },
+            clock: clock, store: store, performanceRecorder: nil,
+            inventory: { await backend.discoverSessionInventory() },
             paneBindings: { bindings }, capture: { await backend.captureHistory($0, clock: clock) },
             factSink: source.sink)
     }

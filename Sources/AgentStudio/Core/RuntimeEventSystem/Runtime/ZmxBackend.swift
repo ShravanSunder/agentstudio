@@ -245,7 +245,7 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
     ///
     ///   1. unsets every inherited `CLAUDE_CODE_*` marker;
     ///   2. `cd`s to the first existing folder in `plan.folderCandidates`,
-    ///      printing that candidate's notice line as it lands (R1 never
+    ///      retaining that candidate's composed notice until after replay (R1 never
     ///      leaves this unresolved: the last candidate is always attempted
     ///      even if every `cd` above it failed);
     ///   3. replays `plan.replayFile` and prints a marker, when present (R2;
@@ -283,12 +283,28 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
             "for _agentstudio_restore_var in $(env | awk -F= '/^CLAUDE_CODE_/{print $1}'); do "
                 + "unset \"$_agentstudio_restore_var\"; done"
         ]
-        lines.append(contentsOf: folderFallbackLines(plan: plan))
+        lines.append(contentsOf: folderFallbackLines(plan: plan, deferNotice: plan.replayFile != nil))
         if let replayFile = plan.replayFile {
-            // Replay follows the selected folder notice and precedes the
-            // restart marker and the fresh shell (SR10).
-            lines.append("cat \(shellEscape(replayFile.path)) 2>/dev/null")
-            lines.append("echo \(shellEscape("--- restored after restart ---"))")
+            // Folder choice comes first, but RIS in the saved file must not
+            // erase the composed notice. Failed replay never earns a marker.
+            lines.append("if cat \(shellEscape(replayFile.path)) 2>/dev/null; then")
+            lines.append("  _agentstudio_restore_replayed=1")
+            lines.append("else")
+            lines.append("  _agentstudio_restore_replayed=0")
+            lines.append("fi")
+            lines.append("printf '%s' \(shellEscape(ScrollbackReplayFrame.normalization))")
+            lines.append("if [ \"$_agentstudio_restore_replayed\" -eq 1 ]; then")
+            lines.append("  printf '\\n'")
+            lines.append("  echo \(shellEscape("--- restored after restart ---"))")
+            lines.append("fi")
+            lines.append("case \"$_agentstudio_restore_folder_index\" in")
+            for (index, notice) in plan.notice.linesByCandidateIndex.enumerated() {
+                lines.append("  \(index)) echo \(shellEscape(notice)) ;;")
+            }
+            lines.append("esac")
+            lines.append("if [ \"$_agentstudio_restore_replayed\" -eq 0 ]; then")
+            lines.append("  echo \(shellEscape("no saved output"))")
+            lines.append("fi")
         }
         let loginShellInvocation = "\(shellEscape(plan.loginShell.path)) -i -l"
         if let resume = plan.resume {
@@ -302,19 +318,25 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
         return lines.joined(separator: "\n")
     }
 
-    private static func folderFallbackLines(plan: TerminalColdRestorePlan) -> [String] {
+    private static func folderFallbackLines(plan: TerminalColdRestorePlan, deferNotice: Bool) -> [String] {
         var lines: [String] = []
         for (index, candidate) in plan.folderCandidates.enumerated() {
             let branchKeyword = index == 0 ? "if" : "elif"
             lines.append("\(branchKeyword) cd \(shellEscape(candidate.path)) 2>/dev/null; then")
-            lines.append("  echo \(shellEscape(plan.notice.linesByCandidateIndex[index]))")
+            lines.append(
+                deferNotice
+                    ? "  _agentstudio_restore_folder_index=\(index)"
+                    : "  echo \(shellEscape(plan.notice.linesByCandidateIndex[index]))")
         }
         // The home folder (the last candidate) is assumed to always exist;
         // this `else` is reached only if even that `cd` failed, in which case
         // the script stays wherever it already is rather than aborting.
         let finalNoticeLine = plan.notice.linesByCandidateIndex[plan.notice.linesByCandidateIndex.count - 1]
         lines.append("else")
-        lines.append("  echo \(shellEscape(finalNoticeLine))")
+        lines.append(
+            deferNotice
+                ? "  _agentstudio_restore_folder_index=\(plan.folderCandidates.count - 1)"
+                : "  echo \(shellEscape(finalNoticeLine))")
         lines.append("fi")
         return lines
     }
