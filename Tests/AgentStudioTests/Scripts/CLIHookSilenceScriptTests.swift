@@ -169,7 +169,7 @@ private final class HookSilenceProcessFixture: @unchecked Sendable {
     private let lock = NSLock()
     private var observedRequests: [JSONRPCRequest] = []
     private var connections: [UnixSocketConnection] = []
-    private var workers: [Task<Void, Never>] = []
+    private var workers: [DedicatedThreadCompletion] = []
     private var isClosing = false
 
     init(condition: HookSilenceCondition) throws {
@@ -218,52 +218,58 @@ private final class HookSilenceProcessFixture: @unchecked Sendable {
                     return
                 }
                 connections.append(connection)
-                workers.append(Task { await self.serve(connection) })
-            }
-        }
-    }
-
-    private func serve(_ connection: UnixSocketConnection) async {
-        await valueFromDedicatedThread { [self] in
-            defer { connection.close() }
-            do {
-                var decoder = NDJSONFrameDecoder(maxFrameBytes: IPCFramePolicy.maximumRequestFrameBytes)
-                while true {
-                    let data = try connection.receive(maxBytes: 16_384)
-                    guard !data.isEmpty else { return }
-                    let frames = try decoder.append(data)
-                    for frame in frames {
-                        let request = try JSONRPCCodec.decodeRequest(frame)
-                        lock.withLock { observedRequests.append(request) }
-                        // Keep the auth reply withheld until the real CLI's call bound
-                        // closes the socket. There is no release timer in this fixture.
-                        if condition == .slow { continue }
-                        let response: JSONRPCResponse
-                        if request.method == "auth.login" {
-                            let status = IPCAuthStatusResult.authenticated(
-                                principalId: principalID, runtimeId: runtimeID, accessMode: .automationSameUser)
-                            response = .success(id: request.id, result: try JSONRPCCodec.encodeJSONValue(status))
-                        } else if request.method == "session.event", condition != .refusing {
-                            guard let params = request.params else { throw HookSilenceFixtureError.missingEvent }
-                            let event = try JSONDecoder().decode(
-                                IPCSessionEventParams.self, from: JSONEncoder().encode(params))
-                            let result = IPCSessionEventResult(
-                                paneId: paneID, disposition: .admitted, correlationId: event.correlationId)
-                            response = .success(id: request.id, result: try JSONRPCCodec.encodeJSONValue(result))
-                        } else {
-                            response = .failure(
-                                id: request.id,
-                                error: JSONRPCErrorPayload(
-                                    code: -32_001, message: "unauthenticated",
-                                    data: .object(["reason": .string("unauthenticated")])))
+                let completion = DedicatedThreadCompletion()
+                workers.append(completion)
+                // The accept handler is already off-pool; submit before any Task hop.
+                Thread.detachNewThread { [self] in
+                    defer { completion.finish() }
+                    defer { connection.close() }
+                    do {
+                        var decoder = NDJSONFrameDecoder(maxFrameBytes: IPCFramePolicy.maximumRequestFrameBytes)
+                        while true {
+                            let data = try connection.receive(maxBytes: 16_384)
+                            guard !data.isEmpty else { return }
+                            let frames = try decoder.append(data)
+                            for frame in frames {
+                                let request = try JSONRPCCodec.decodeRequest(frame)
+                                lock.withLock { observedRequests.append(request) }
+                                // Keep the auth reply withheld until the real CLI's call bound
+                                // closes the socket. There is no release timer in this fixture.
+                                if condition == .slow { continue }
+                                let response: JSONRPCResponse
+                                if request.method == "auth.login" {
+                                    let status = IPCAuthStatusResult.authenticated(
+                                        principalId: principalID, runtimeId: runtimeID,
+                                        accessMode: .automationSameUser)
+                                    response = .success(
+                                        id: request.id, result: try JSONRPCCodec.encodeJSONValue(status))
+                                } else if request.method == "session.event", condition != .refusing {
+                                    guard let params = request.params else {
+                                        throw HookSilenceFixtureError.missingEvent
+                                    }
+                                    let event = try JSONDecoder().decode(
+                                        IPCSessionEventParams.self,
+                                        from: JSONEncoder().encode(params))
+                                    let result = IPCSessionEventResult(
+                                        paneId: paneID, disposition: .admitted, correlationId: event.correlationId)
+                                    response = .success(
+                                        id: request.id, result: try JSONRPCCodec.encodeJSONValue(result))
+                                } else {
+                                    response = .failure(
+                                        id: request.id,
+                                        error: JSONRPCErrorPayload(
+                                            code: -32_001, message: "unauthenticated",
+                                            data: .object(["reason": .string("unauthenticated")])))
+                                }
+                                try connection.send(
+                                    NDJSONFrameEncoder.encode(
+                                        JSONRPCCodec.encodeResponse(response),
+                                        maxFrameBytes: IPCFramePolicy.maximumResponseFrameBytes))
+                            }
                         }
-                        try connection.send(
-                            NDJSONFrameEncoder.encode(
-                                JSONRPCCodec.encodeResponse(response),
-                                maxFrameBytes: IPCFramePolicy.maximumResponseFrameBytes))
-                    }
+                    } catch {}
                 }
-            } catch {}
+            }
         }
     }
 
@@ -274,7 +280,7 @@ private final class HookSilenceProcessFixture: @unchecked Sendable {
             return (connections, workers)
         }
         for connection in owned.0 { connection.close() }
-        for worker in owned.1 { await worker.value }
+        for worker in owned.1 { await worker.wait() }
     }
 
     func removeFiles() { try? FileManager.default.removeItem(at: rootURL) }
