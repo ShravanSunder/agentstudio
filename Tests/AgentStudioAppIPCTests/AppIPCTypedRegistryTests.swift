@@ -160,7 +160,7 @@ struct AppIPCTypedRegistryTests {
                 #expect(request.target == .app)
             }
         )
-        let decoded = try IPCMethodCatalogDecoder.decode(JSONEncoder().encode(result))
+        let decoded = try IPCMethodCatalogDecoder.decode(encodedAppIPCInvocationResult(result))
         #expect(decoded == registry.capabilities)
     }
 }

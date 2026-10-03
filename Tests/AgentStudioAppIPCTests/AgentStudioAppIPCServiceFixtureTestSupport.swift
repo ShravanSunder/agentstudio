@@ -122,6 +122,7 @@ struct LiveServerFixture: Sendable {
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
         canonicalPaneMembership: (@Sendable (UUID, UUID) -> Bool)? = nil,
         ownPaneScopes: [AppIPCOwnPaneScope] = [],
+        cliStoreReadThroughPort: (any AppIPCCLIStoreReadThroughPort)? = nil,
         additionalRegistrations: [AnyAppIPCMethodRegistration] = [],
         eventBroker: IPCEventBroker = IPCEventBroker(),
         makeConnectionIO: @escaping @Sendable (UnixSocketConnection) -> AppIPCConnectionIO = AppIPCConnectionIO.live,
@@ -216,6 +217,7 @@ struct LiveServerFixture: Sendable {
                     channel: channel,
                     principalRegistry: principalRegistry,
                     credentialContinuityPort: credentialContinuityPort,
+                    cliStoreReadThroughPort: cliStoreReadThroughPort,
                     makeConnectionIO: makeConnectionIO,
                     makeConnectionWriter: makeConnectionWriter
                 )
@@ -416,7 +418,6 @@ private func makeLiveServerBuiltInCatalog(
     let illustrativeId = UUIDv7.generate()
     return try IPCBuiltInMethodCatalog(
         inputs: IPCBuiltInMethodCatalogInputs(
-            terminalWaitMaximumSeconds: 86_400,
             relationships: IPCBuiltInMethodRelationshipInputs(
                 paneFocus: .noInteractiveIdentity,
                 paneClose: .noInteractiveIdentity,
