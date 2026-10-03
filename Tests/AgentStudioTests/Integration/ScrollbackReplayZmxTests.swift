@@ -219,13 +219,14 @@ extension E2ESerializedTests.ScrollbackCaptureIntegrationTests {
             // Expected defaults come from pinned Ghostty modes.zig, not
             // the normalization string. All of these default to disabled.
             for activeMode in [
-                "1049", "1047", "47", "9", "1000", "1002", "1003", "1004", "1005", "1006", "1015", "1016",
+                "1049", "1047", "47", "1", "9", "1000", "1002", "1003", "1004", "1005", "1006", "1015", "1016",
             ] {
                 #expect(
                     !history.bytes.contains(Data("\u{1B}[?\(activeMode)h".utf8)),
                     Comment(rawValue: "mode ?\(activeMode)h remains set after replay normalization"))
             }
             #expect(!history.bytes.contains(Data("\u{1B}[?25l".utf8)))
+            #expect(!history.bytes.contains(Data("\u{1B}[?7l".utf8)))
             #expect(
                 !history.bytes.contains(Data("\u{1B}[?1007l".utf8)),
                 "mode ?1007 must retain Ghostty's enabled alternate-scroll default")
@@ -235,6 +236,32 @@ extension E2ESerializedTests.ScrollbackCaptureIntegrationTests {
             let prompt = try #require(text.range(of: history.prompt))
             #expect(marker.lowerBound < notice.lowerBound)
             #expect(notice.lowerBound < prompt.lowerBound)
+        }
+        // A primary-screen progress program can retain its own DECSTBM
+        // region. Replay this state through the same real daemon/script path.
+        try await withReplayStore { store in
+            let pane = makeReplayPane()
+            let lastLine = "last saved primary progress row"
+            let progressSnapshot = Data(
+                ("\u{1B}[2;4r\u{1B}[?7l\u{1B}[?1h\u{1B}[3;1H" + lastLine).utf8)
+            _ = try await store.store(paneId: PaneId(existingUUID: pane.id), capture: progressSnapshot)
+            let history = try await restoredHistory(pane: pane, store: store, requireReplay: true)
+            #expect(!history.bytes.contains(Data("\u{1B}[?7l".utf8)))
+            #expect(!history.bytes.contains(Data("\u{1B}[?1h".utf8)))
+            #expect(
+                !history.bytes.contains(Data("\u{1B}[2;4r".utf8)),
+                "the primary progress program's scroll region must be reset to the full screen")
+            let rows = try terminalLines(history.bytes).split(whereSeparator: \.isNewline).map {
+                String($0).trimmingCharacters(in: .whitespaces)
+            }
+            let savedRow = try #require(rows.firstIndex(where: { $0.contains(lastLine) }))
+            let markerRow = try #require(
+                rows.firstIndex(where: { $0.contains("--- restored after restart ---") }))
+            let promptRow = try #require(rows.firstIndex(where: { $0.contains(history.prompt) }))
+            #expect(rows[savedRow] == lastLine)
+            #expect(savedRow < markerRow)
+            #expect(markerRow < promptRow)
+            try assertReplayOrdering(history.bytes, savedText: lastLine, prompt: history.prompt)
         }
     }
 
