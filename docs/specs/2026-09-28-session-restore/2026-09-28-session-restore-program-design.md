@@ -1,6 +1,8 @@
 # Session restore after a reboot: how it is built
 
-Date: 2026-10-02, revision 25 (R3 review round 1): item 7's classification decides completeness per pane, not per `ps` pass. A process exiting in one pane no longer turns every pane's look into `.unknown`.
+Date: 2026-10-02, revision 26 (R3 review round 1, F6): item 13's resumed-SessionStart end uses `markRestorePhaseEnded`, the person-input boundary, so it orders after an in-flight drain.
+
+**Revision 25** (R3 review round 1): item 7's classification decides completeness per pane, not per `ps` pass. A process exiting in one pane no longer turns every pane's look into `.unknown`.
 
 **Revision 24** (R3 as built, amendment 13): a cold pane waits for resume readiness inside the activation scheduler, as a per-pane eligibility checked before a pane can be picked or claimed (items 4 and 10). R2's quit capture and R3's quit look share the one shutdown bound and run concurrently (item 7).
 
@@ -440,7 +442,11 @@ flowchart LR
     - **Arming.** Terminal activation awaits `TerminalActivitySourceInput.restorePhaseArmed(paneID:restoreGeneration:)` and requires an **acknowledgment**. The submit returns `RestorePhaseArmAcknowledgment = .armed | .projectorUnbound`, not `Void`. If the projector isn't bound yet, activation waits for the router's bound fact (the router publishes it after `configure` and binding) and then arms. It never creates the surface unarmed.
     - **Ending on person input.** The cold `GhosttySurfaceView` holds a latch that's nil elsewhere. On a non-modifier `keyDown`, `paste` or committed `insertText`, the latch **synchronously** records `restorePhaseEnded(restoreGeneration)` under the surface's `TerminalLocalActionAccumulator` lock (new: `markRestorePhaseEnded(surfaceID:generation:)`), splitting pending activity at that exact point. The existing drain then publishes the pre-input aggregate, the control, then later activity, in that order. Nothing is lost after the latch clears, and there's no `Task` racing output.
     - **Ending on the resumed agent's start.** SessionStart ends the phase only if its provider session id matches this attempt's `ResumeInvocation.sessionId` and it arrives in the current launch (not a spooled replay). The projector deduplicates by generation. Old generations and replaced surfaces are ignored.
-    - **Ending ordered for SessionStart:** a matched live SessionStart is delivered through the same ordered ingress. It uses the pane's current surface with `applyOrderedActivityControl`, which folds the preceding aggregate first, or a pane-keyed source input when there's no surface.
+    - **Ending ordered for SessionStart (corrected, rev 26):** a matched live SessionStart ends the phase at the **same accumulator boundary as person input**: `markRestorePhaseEnded` on the pane's current surface, reached with one MainActor hop to resolve that surface.
+      - If the lane is idle, the call folds pending activity into the end and schedules a drain.
+      - If a drain is already in flight, the call records the end, and `finishDrain` delivers it after that batch.
+
+      Either way, restore-time output reaches the projector inside the phase. A pane with no surface uses the pane-keyed end. `applyOrderedActivityControl` was named here before, but it folds only pending activity and misses an in-flight drain (R3 review round 1, F6).
     - **Gating during the phase is Panes' consumer, specified in Panes' brief** `~/Documents/dev/project-dev/agent-studio.pane-fixes/tmp/design-workflows/2026-09-25-panes-stage1/restore-phase-consumer-brief.md`. That brief is the authority; the summary here is for readers only. It also skips `commandFinished` settling while armed, and ignores stale and duplicate ends. The projector keeps `restorePhaseByPane[paneID] = generation`, independent of the surface-keyed `PaneState`: it survives surface replacement and is cleared by an end with a matching generation or by permanent close.
       - **While active,** the projector keeps compact scrollbar and pin state only. It admits **no** unseen window, activity window or agent candidate, and reads no last line.
       - **On `.restorePhaseEnded`,** it sets `outputBurst = .quiet(latestTotal)`, clears `previousLastOutputLine` and `hasReadableActivityBaseline`, and the first readable line after that becomes the baseline.
