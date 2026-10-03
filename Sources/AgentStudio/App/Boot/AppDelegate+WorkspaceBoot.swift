@@ -460,8 +460,12 @@ extension AppDelegate {
                 self?.requestTraceIdentityRefresh()
             }
         )
+        let scrollbackBackend = ZmxBackend(configuration: workspaceSurfaceCoordinator.sessionConfig)
+        if let backend = scrollbackBackend {
+            installScrollbackSnapshotter(using: backend)
+        }
         workspaceSurfaceCoordinator.installUndoJournalRecovery(undoRecovery)
-        if let backend = ZmxBackend(configuration: workspaceSurfaceCoordinator.sessionConfig) {
+        if let backend = scrollbackBackend {
             workspaceSurfaceCoordinator.startTerminalSessionCleanup(
                 using: backend,
                 canRetire: { sessionID in !SurfaceManager.shared.hasNativeAttachments(for: sessionID) })
@@ -657,6 +661,7 @@ extension AppDelegate {
         return TerminalRestoreKindResolver(
             sessionConfiguration: sessionConfiguration,
             probe: probe,
+            scrollbackStore: scrollbackStore,
             repositoryMainFolder: { [weak self] pane in
                 guard let repoId = pane.repoId else { return nil }
                 return self?.store.repositoryTopologyAtom.repo(repoId)?.repoPath

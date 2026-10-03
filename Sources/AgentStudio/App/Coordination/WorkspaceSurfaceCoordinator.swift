@@ -70,6 +70,8 @@ final class WorkspaceSurfaceCoordinator {
 
     let store: WorkspaceStore
     var paneActivityClock: PaneActivityClock?
+    var scrollbackSnapshotter: ScrollbackSnapshotter?
+    var scrollbackRetirementTasksByID: [UUID: Task<Void, Never>] = [:]
     let undoClock: @Sendable () async throws -> WorkspaceUndoJournalTime
     let undoDelay: AsyncDelay
     let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -432,6 +434,10 @@ final class WorkspaceSurfaceCoordinator {
         undoDeadlineTask?.cancel()
         await undoDeadlineTask?.value
         undoDeadlineTask = nil
+        // Undo expiry can submit retirement forwards until its task joins.
+        for task in scrollbackRetirementTasksByID.values { await task.value }
+        scrollbackRetirementTasksByID.removeAll()
+        await scrollbackSnapshotter?.shutdown()
         retireAllZoomCompanions()
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
@@ -576,6 +582,7 @@ final class WorkspaceSurfaceCoordinator {
     /// posting a terminal-activity fact from a synchronous call site.
     func retirePanesPermanently(_ paneIDs: Set<UUID>) {
         paneActivityClock?.retire(Array(paneIDs))
+        submitScrollbackRetirement(paneIDs)
         for paneID in paneIDs {
             Task { @MainActor in
                 await Ghostty.ActionRouter.retirePanePermanently(paneID: paneID)
