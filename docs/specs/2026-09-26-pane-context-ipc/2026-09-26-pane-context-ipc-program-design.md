@@ -273,8 +273,10 @@ Nothing computes on the main thread.
        - How: each creator builds a complete store under a private name: WAL,
          `synchronous=FULL`, migrations and identity, then a TRUNCATE
          checkpoint and close. It then publishes with an exclusive rename. The
-         loser opens the winner's store, and an existing store never changes
-         journal mode.
+         loser opens the winner's store. A published store is already in WAL,
+         so its writers skip the switch. Only an older store that isn't in WAL
+         yet still switches once on upgrade, which keeps the existing upgrade
+         path.
        - The creator turns off persistent WAL on its private connection only,
          so nothing private is left behind. The published store keeps Apple
          SQLite's default of persistent `-wal`/`-shm`, which the app's
