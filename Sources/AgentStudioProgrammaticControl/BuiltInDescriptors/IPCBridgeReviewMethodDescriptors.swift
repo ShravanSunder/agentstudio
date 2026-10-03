@@ -31,7 +31,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
         name: "bridge.diff.load", summary: "Open a Bridge review for one explicit worktree.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -52,7 +53,7 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                     relationship: inputs.relationships.bridgeDiffLoad,
                     owner: .bridgeCapability,
                     errors: Self.bridgeErrors,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -62,7 +63,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
         name: "bridge.fileView.open", summary: "Open a Bridge file viewer for one explicit worktree.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -83,7 +85,7 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                     relationship: inputs.relationships.bridgeFileViewOpen,
                     owner: .bridgeCapability,
                     errors: Self.bridgeErrors,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -93,7 +95,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
         name: "bridge.diff.refresh", summary: "Refresh the review package in one Bridge pane.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -116,7 +119,7 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                     targetKinds: [.pane],
                     owner: .bridgeCapability,
                     errors: Self.bridgeErrors,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -124,7 +127,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
         name: "bridge.diff.getPackage", summary: "Read the current review package from one Bridge pane.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
@@ -136,7 +140,7 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
                 errors: Self.bridgeErrors,
-                agentEligibility: .notYetAllowed
+                agentEligibility: entryEligibility
             )
         })
 
@@ -144,7 +148,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
         name: "bridge.diff.renderState", summary: "Read rendered Bridge state and diagnostics from one pane.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
@@ -156,7 +161,7 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
                 errors: Self.bridgeErrors,
-                agentEligibility: .notYetAllowed
+                agentEligibility: entryEligibility
             )
         })
 
@@ -166,7 +171,8 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
         name: "bridge.diff.selectFile", summary: "Select one review item in a Bridge pane.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -188,7 +194,7 @@ package struct IPCBridgeReviewMethodDescriptors: Sendable {
                     targetKinds: [.pane],
                     owner: .bridgeCapability,
                     errors: Self.bridgeErrors,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 

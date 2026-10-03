@@ -83,8 +83,8 @@ struct IPCCompiledInvocationResolverTests {
         #expect(observation.helpSchemaNames.isEmpty)
     }
 
-    @Test("detailed help retains options and correlation text using only its parameter-schema factory")
-    func detailedHelpConstructsNoDescriptors() throws {
+    @Test("detailed help retains options and correlation text and builds only the selected method's example")
+    func detailedHelpConstructsOnlySelectedDescriptor() throws {
         let observation = ResolverFactoryObservation()
         let resolver = IPCCompiledInvocationResolver(index: recordingIndex(observation))
         let rendered = try resolver.localHelp(arguments: ["terminal.send", "--help"], inputs: inputs)
@@ -94,8 +94,9 @@ struct IPCCompiledInvocationResolverTests {
         #expect(help.contains("input"))
         #expect(help.contains("correlationId"))
         #expect(help.contains("correlationId is generated when omitted"))
-        #expect(observation.descriptorNames.isEmpty)
+        #expect(observation.descriptorNames == ["terminal.send"])
         #expect(observation.helpSchemaNames == ["terminal.send"])
+        #expect(help.contains("Example: agentstudio terminal.send --json"))
     }
 
     private var inputs: IPCBuiltInMethodCatalogInputs {
@@ -108,6 +109,7 @@ struct IPCCompiledInvocationResolverTests {
                 IPCBuiltInMethodIndexEntry(
                     name: entry.name, summary: entry.summary, modelCalls: entry.modelCalls,
                     correlationPolicy: entry.correlationPolicy,
+                    agentEligibility: entry.agentEligibility,
                     parameterSchema: {
                         observation.recordHelpSchema(entry.name)
                         return try entry.parameterSchema()

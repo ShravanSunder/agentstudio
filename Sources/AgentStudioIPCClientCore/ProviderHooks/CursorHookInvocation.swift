@@ -1,3 +1,4 @@
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -84,6 +85,7 @@ package enum CursorHookInvocation {
     }
 
     private static func send(params: IPCSessionEventParams, environment: [String: String]) throws {
+        let deadline = CallDeadline(limit: CLIPolicy.hookCallLimit)
         let configuration = AgentStudioIPCClientConfiguration(
             socketPath: try AgentStudioIPCClientDiscovery.socketPath(
                 explicitSocketPath: nil, environment: environment, metadataURL: nil
@@ -99,7 +101,7 @@ package enum CursorHookInvocation {
         }
         let cleanup = CLIStoreCleanupHandler(environment: environment)
         let client = AgentStudioIPCClient(
-            configuration: configuration, descriptors: descriptors,
+            configuration: configuration, descriptors: descriptors, deadline: deadline,
             onCallCompletion: { cleanup.handle(readThrough: $0) })
         let result = try client.call(
             IPCDescriptorInvocation(

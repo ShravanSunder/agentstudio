@@ -1,3 +1,4 @@
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -32,7 +33,7 @@ package struct ClaudeCodeHookInvocationInputs {
 /// leaves stdout empty, because Claude Code parses hook stdout as a decision
 /// document and treats a non-zero exit as a hook failure the user sees. Every
 /// refusal, missing credential and transport failure is therefore a silent
-/// success here, at most one line on stderr and never any payload content.
+/// success here. Diagnostics go only to the CLI's private log.
 package enum ClaudeCodeHookInvocation {
     package static let commandPrefix = ["hook", "claude"]
 
@@ -82,6 +83,7 @@ package enum ClaudeCodeHookInvocation {
     }
 
     private static func send(params: IPCSessionEventParams, environment: [String: String]) throws {
+        let deadline = CallDeadline(limit: CLIPolicy.hookCallLimit)
         let configuration = AgentStudioIPCClientConfiguration(
             socketPath: try AgentStudioIPCClientDiscovery.socketPath(
                 explicitSocketPath: nil, environment: environment, metadataURL: nil
@@ -97,7 +99,7 @@ package enum ClaudeCodeHookInvocation {
         }
         let cleanup = CLIStoreCleanupHandler(environment: environment)
         let client = AgentStudioIPCClient(
-            configuration: configuration, descriptors: descriptors,
+            configuration: configuration, descriptors: descriptors, deadline: deadline,
             onCallCompletion: { cleanup.handle(readThrough: $0) })
         let result = try client.call(
             IPCDescriptorInvocation(

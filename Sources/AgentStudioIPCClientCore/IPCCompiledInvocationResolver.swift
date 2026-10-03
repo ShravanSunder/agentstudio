@@ -30,13 +30,15 @@ package struct IPCCompiledInvocationResolver: Sendable {
     }
 
     package func localHelp(
-        arguments: [String], inputs _: IPCBuiltInMethodCatalogInputs? = nil
+        arguments: [String], inputs: IPCBuiltInMethodCatalogInputs? = nil
     ) throws -> String? {
-        try IPCDescriptorCLIHelp.localHelp(arguments: arguments, index: index)
+        try IPCDescriptorCLIHelp.localHelp(arguments: arguments, index: index, inputs: inputs)
     }
 
     private func selectedEntry(arguments: [String]) throws -> IPCBuiltInMethodIndexEntry {
-        guard let name = arguments.first else { throw unknownMethod() }
+        guard let name = arguments.first else {
+            throw IPCDescriptorInvocationError.unknownMethod(named: "", index: index)
+        }
         if let exact = index.entry(named: name) { return exact }
         let candidates = index.entries.flatMap { entry in
             entry.modelCalls.compactMap { projection -> (IPCBuiltInMethodIndexEntry, Int)? in
@@ -44,7 +46,9 @@ package struct IPCCompiledInvocationResolver: Sendable {
                 return arguments.starts(with: prefix) ? (entry, prefix.count) : nil
             }
         }
-        guard let longest = candidates.map({ $0.1 }).max() else { throw unknownMethod() }
+        guard let longest = candidates.map({ $0.1 }).max() else {
+            throw IPCDescriptorInvocationError.unknownMethod(named: name, index: index)
+        }
         let matches = candidates.filter { $0.1 == longest }
         guard matches.count == 1, let candidate = matches.first else {
             throw IPCDescriptorInvocationError(
@@ -53,8 +57,4 @@ package struct IPCCompiledInvocationResolver: Sendable {
         return candidate.0
     }
 
-    private func unknownMethod() -> IPCDescriptorInvocationError {
-        IPCDescriptorInvocationError(
-            reason: .unknownMethod, fieldPath: "$", expected: "a declared method or model invocation")
-    }
 }

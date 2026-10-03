@@ -1,24 +1,28 @@
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
+import Foundation
 
 /// Help projects compiled contracts before endpoint or credential resolution.
 /// Live command identities are rendered only from an explicit discovery.
 enum IPCDescriptorCLIHelp {
-    static func localHelp(arguments: [String], index: IPCBuiltInMethodIndex) throws -> String? {
+    static func localHelp(
+        arguments: [String], index: IPCBuiltInMethodIndex, inputs: IPCBuiltInMethodCatalogInputs? = nil
+    ) throws -> String? {
         if arguments == ["--help"] || arguments == ["help"] {
             return overview(index: index)
         }
         if arguments.count == 2, arguments[0] == "help", arguments[1] != "--live" {
-            return try methodHelp(named: arguments[1], index: index)
+            return try methodHelp(named: arguments[1], index: index, inputs: inputs)
         }
         if arguments.count == 2, arguments[1] == "--help" {
-            return try methodHelp(named: arguments[0], index: index)
+            return try methodHelp(named: arguments[0], index: index, inputs: inputs)
         }
         return nil
     }
 
     static func overview(index: IPCBuiltInMethodIndex) -> String {
         let methods = index.entries.map {
-            "  \($0.name) — \($0.summary)"
+            "  \($0.name) — \($0.summary)  [agent: \(agentLabel($0.agentEligibility))]"
         }
         return
             ([
@@ -27,7 +31,7 @@ enum IPCDescriptorCLIHelp {
                 "       agentstudio help [--live]",
                 "Methods:",
             ] + methods + [
-                "Discovery: agentstudio system.capabilities | agentstudio command.list",
+                "Method help: agentstudio <method> --help",
                 "Live commands: agentstudio help --live",
                 "Use --json '{...}' or --stdin for a JSON parameter object.",
             ]).joined(separator: "\n")
@@ -40,10 +44,20 @@ enum IPCDescriptorCLIHelp {
             }).joined(separator: "\n")
     }
 
-    private static func methodHelp(named name: String, index: IPCBuiltInMethodIndex) throws -> String {
+    private static func agentLabel(_ eligibility: IPCAgentEligibility?) -> String {
+        switch eligibility {
+        // Legacy nil methods retain the existing self-pane privilege baseline.
+        case .ownPane, nil: "own pane"
+        case .anyTarget: "read-only"
+        case .notYetAllowed: "not yet allowed"
+        }
+    }
+
+    private static func methodHelp(
+        named name: String, index: IPCBuiltInMethodIndex, inputs: IPCBuiltInMethodCatalogInputs?
+    ) throws -> String {
         guard let entry = index.entry(named: name) else {
-            throw IPCDescriptorInvocationError(
-                reason: .unknownMethod, fieldPath: "$.method", expected: "a compiled method name")
+            throw IPCDescriptorInvocationError.unknownMethod(named: name, index: index)
         }
         var lines = [
             "\(entry.name) — \(entry.summary)",
@@ -66,6 +80,15 @@ enum IPCDescriptorCLIHelp {
                 "correlationId is generated when omitted and preserved when supplied, including JSON and stdin.")
         }
         lines.append("Use JSON or stdin for object and array parameters.")
+        let exampleInputs = inputs ?? .init(examples: .init(illustrativeIdentifier: UUIDv7.generate()))
+        let descriptor = try entry.makeRepresentation(inputs: exampleInputs).erasedDescriptor
+        if let example = descriptor.metadata.examples.first {
+            guard let parameterText = String(bytes: try example.encodedParameters(), encoding: .utf8) else {
+                return lines.joined(separator: "\n")
+            }
+            let escapedParameterText = parameterText.replacingOccurrences(of: "'", with: "'\\''")
+            lines.append("Example: agentstudio \(entry.name) --json '\(escapedParameterText)'")
+        }
         return lines.joined(separator: "\n")
     }
 }

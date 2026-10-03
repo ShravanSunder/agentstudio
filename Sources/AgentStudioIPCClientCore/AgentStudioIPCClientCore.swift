@@ -6,14 +6,17 @@ package struct AgentStudioIPCClient: Sendable {
     package let configuration: AgentStudioIPCClientConfiguration
     private let descriptors: [IPCAnyMethodDescriptor]
     private let onCallCompletion: @Sendable (IPCCLIStoreReadThrough?) -> Void
+    private let deadline: CallDeadline?
 
     package init(
         configuration: AgentStudioIPCClientConfiguration,
         descriptors: [IPCAnyMethodDescriptor],
+        deadline: CallDeadline? = nil,
         onCallCompletion: @escaping @Sendable (IPCCLIStoreReadThrough?) -> Void = { _ in }
     ) {
         self.configuration = configuration
         self.descriptors = descriptors
+        self.deadline = deadline
         self.onCallCompletion = onCallCompletion
     }
 
@@ -111,16 +114,16 @@ package struct AgentStudioIPCClient: Sendable {
         }
     }
 
-    /// Discovery has a concrete metadata decoder; received metadata never creates an invocable descriptor.
+    /// The bundled app has already validated its catalog. Preserve its bytes
+    /// for explicit discovery; typed reads are only for consumers of metadata.
+    package func discoverCatalogBytes(requestID: Int = 1) throws -> Data {
+        try callDiscovery(method: "system.capabilities", requestID: requestID)
+    }
+
     package func discoverCatalog(requestID: Int = 1) throws -> IPCMethodCatalogResult {
-        let encodedResult = try callDiscovery(method: "system.capabilities", requestID: requestID)
+        let encodedResult = try discoverCatalogBytes(requestID: requestID)
         do {
-            return try IPCMethodCatalogDecoder.decode(encodedResult)
-        } catch let correction as IPCSchemaValidationError
-            where
-            correction.fieldPath == "$.compatibility" && correction.reason == .invalidValue
-        {
-            throw failure(.protocolRejected, .unsupportedVersion(correction))
+            return try JSONDecoder().decode(IPCMethodCatalogResult.self, from: encodedResult)
         } catch {
             throw failure(.deliveryUncertain, .invalidTypedResult)
         }
@@ -275,7 +278,8 @@ package struct AgentStudioIPCClient: Sendable {
 
     private func connect() throws -> UnixSocketConnection {
         do {
-            return try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: configuration.socketPath))
+            return try UnixSocketClient.connect(
+                endpoint: UnixSocketEndpoint(path: configuration.socketPath), deadline: deadline)
         } catch let error as UnixSocketTransportError where error.reason == .connectFailed {
             throw failure(.endpointUnavailableBeforeSubmission, .endpointConnectFailed(errnoCode: error.errnoCode))
         } catch { throw failure(.notSubmitted, .localRequestEncoding) }

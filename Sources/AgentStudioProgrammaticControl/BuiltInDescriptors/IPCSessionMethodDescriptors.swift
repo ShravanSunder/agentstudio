@@ -60,7 +60,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
             ),
         ],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, entryModelCalls, inputs in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, entryModelCalls, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCMethodDescriptor(
                 name: entryName,
@@ -111,7 +112,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
                 isMutating: true,
                 correlationPolicy: .required,
                 offlineEligibility: .modelCallVariants([.needsYou, .done]),
-                modelCalls: entryModelCalls
+                modelCalls: entryModelCalls,
+                agentEligibility: entryEligibility
             )
         })
 
@@ -134,7 +136,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
             )
         ],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, entryModelCalls, inputs in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, entryModelCalls, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCMethodDescriptor(
                 name: entryName,
@@ -167,7 +170,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
                 isMutating: true,
                 correlationPolicy: .required,
                 offlineEligibility: .modelCallVariants([.message]),
-                modelCalls: entryModelCalls
+                modelCalls: entryModelCalls,
+                agentEligibility: entryEligibility
             )
         })
 
@@ -175,7 +179,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
         name: "session.event", summary: "Project one provider lifecycle event into Sessions for the target pane.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCMethodDescriptor(
                 name: entryName,
@@ -219,7 +224,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
                 documentedErrors: Self.sessionErrors,
                 isMutating: true,
                 correlationPolicy: .required,
-                offlineEligibility: .never
+                offlineEligibility: .never,
+                agentEligibility: entryEligibility
             )
         })
 
@@ -227,7 +233,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
         name: "session.query", summary: "Read the target pane's session state and newest retained messages.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCMethodDescriptor(
                 name: entryName,
@@ -266,7 +273,8 @@ package struct IPCSessionMethodDescriptors: Sendable {
                 resultSemantics: .applied,
                 documentedErrors: Self.sessionErrors,
                 isMutating: false,
-                correlationPolicy: .notAccepted
+                correlationPolicy: .notAccepted,
+                agentEligibility: entryEligibility
             )
         })
 

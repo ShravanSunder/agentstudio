@@ -6,34 +6,40 @@ struct IPCBuiltInMethodEntry<Parameters: IPCSchemaProviding, Result: Codable & S
     let summary: String
     let modelCalls: [IPCModelCallProjection]
     let correlationPolicy: IPCCorrelationPolicy
+    let agentEligibility: IPCAgentEligibility?
     private let parameterSchemaFactory: @Sendable () throws -> IPCJSONSchema
     private let descriptorFactory:
-        @Sendable (String, String, [IPCModelCallProjection], IPCBuiltInMethodCatalogInputs) throws
+        @Sendable (String, String, [IPCModelCallProjection], IPCAgentEligibility?, IPCBuiltInMethodCatalogInputs) throws
             -> IPCMethodDescriptor<Parameters, Result>
 
     init(
         name: String, summary: String, modelCalls: [IPCModelCallProjection],
         correlationPolicy: IPCCorrelationPolicy,
+        agentEligibility: IPCAgentEligibility?,
         parameterSchema: @escaping @Sendable () throws -> IPCJSONSchema = { try Parameters.ipcSchema() },
         makeDescriptor:
-            @escaping @Sendable (String, String, [IPCModelCallProjection], IPCBuiltInMethodCatalogInputs) throws
+            @escaping @Sendable (
+                String, String, [IPCModelCallProjection], IPCAgentEligibility?, IPCBuiltInMethodCatalogInputs
+            ) throws
             -> IPCMethodDescriptor<Parameters, Result>
     ) {
         self.name = name
         self.summary = summary
         self.modelCalls = modelCalls
         self.correlationPolicy = correlationPolicy
+        self.agentEligibility = agentEligibility
         parameterSchemaFactory = parameterSchema
         descriptorFactory = makeDescriptor
     }
 
     func makeDescriptor(inputs: IPCBuiltInMethodCatalogInputs) throws -> IPCMethodDescriptor<Parameters, Result> {
-        try descriptorFactory(name, summary, modelCalls, inputs)
+        try descriptorFactory(name, summary, modelCalls, agentEligibility, inputs)
     }
 
     var erased: IPCBuiltInMethodIndexEntry {
         IPCBuiltInMethodIndexEntry(
             name: name, summary: summary, modelCalls: modelCalls, correlationPolicy: correlationPolicy,
+            agentEligibility: agentEligibility,
             parameterSchema: parameterSchemaFactory,
             makeRepresentation: { inputs in
                 try IPCMethodDescriptorRepresentations(typedDescriptor: self.makeDescriptor(inputs: inputs))
@@ -59,6 +65,8 @@ package struct IPCBuiltInMethodIndexEntry: Sendable {
     package let summary: String
     package let modelCalls: [IPCModelCallProjection]
     package let correlationPolicy: IPCCorrelationPolicy
+    /// Nil retains the established bound-pane privilege baseline.
+    package let agentEligibility: IPCAgentEligibility?
     private let parameterSchemaFactory: @Sendable () throws -> IPCJSONSchema
     private let representationFactory:
         @Sendable (IPCBuiltInMethodCatalogInputs) throws -> any IPCMethodDescriptorRepresentation
@@ -66,6 +74,7 @@ package struct IPCBuiltInMethodIndexEntry: Sendable {
     package init(
         name: String, summary: String, modelCalls: [IPCModelCallProjection],
         correlationPolicy: IPCCorrelationPolicy,
+        agentEligibility: IPCAgentEligibility?,
         parameterSchema: @escaping @Sendable () throws -> IPCJSONSchema,
         makeRepresentation:
             @escaping @Sendable (IPCBuiltInMethodCatalogInputs) throws -> any IPCMethodDescriptorRepresentation
@@ -74,6 +83,7 @@ package struct IPCBuiltInMethodIndexEntry: Sendable {
         self.summary = summary
         self.modelCalls = modelCalls
         self.correlationPolicy = correlationPolicy
+        self.agentEligibility = agentEligibility
         parameterSchemaFactory = parameterSchema
         representationFactory = makeRepresentation
     }

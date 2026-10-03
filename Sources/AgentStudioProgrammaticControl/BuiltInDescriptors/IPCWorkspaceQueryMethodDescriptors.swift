@@ -38,7 +38,8 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
         name: "window.list", summary: "List workspace windows.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let window = IPCWindowSummary(
                 id: examples.windowId,
@@ -50,14 +51,15 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             )
             return try Self.query(
                 entryName, entrySummary, IPCWindowListResult(windows: [window]), .workspaceRead,
-                .unspecified)
+                .unspecified, agentEligibility: entryEligibility)
         })
 
     static let windowCurrentEntry = IPCBuiltInMethodEntry<IPCEmptyParams, IPCCurrentWindowResult>(
         name: "window.current", summary: "Read the current workspace window.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let window = IPCWindowSummary(
                 id: examples.windowId,
@@ -69,14 +71,15 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             )
             return try Self.query(
                 entryName, entrySummary, IPCCurrentWindowResult(window: window),
-                .workspaceRead, .unspecified)
+                .workspaceRead, .unspecified, agentEligibility: entryEligibility)
         })
 
     static let workspaceListEntry = IPCBuiltInMethodEntry<IPCEmptyParams, IPCWorkspaceListResult>(
         name: "workspace.list", summary: "List available workspaces.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let worktree = IPCWorkspaceWorktreeSummary(
                 id: examples.worktreeId,
@@ -102,14 +105,15 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             )
             return try Self.query(
                 entryName, entrySummary, IPCWorkspaceListResult(workspaces: [workspace]),
-                .workspaceRead, .unspecified)
+                .workspaceRead, .unspecified, agentEligibility: entryEligibility)
         })
 
     static let workspaceCurrentEntry = IPCBuiltInMethodEntry<IPCEmptyParams, IPCCurrentWorkspaceResult>(
         name: "workspace.current", summary: "Read the current workspace.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let worktree = IPCWorkspaceWorktreeSummary(
                 id: examples.worktreeId,
@@ -135,14 +139,15 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             )
             return try Self.query(
                 entryName, entrySummary, IPCCurrentWorkspaceResult(workspace: workspace),
-                .workspaceRead, .unspecified)
+                .workspaceRead, .unspecified, agentEligibility: entryEligibility)
         })
 
     static let paneListEntry = IPCBuiltInMethodEntry<IPCEmptyParams, IPCPaneListResult>(
         name: "pane.list", summary: "List panes in the selected runtime.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let pane = IPCPaneSummary(
                 id: examples.paneId,
@@ -157,14 +162,15 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             )
             return try Self.query(
                 entryName, entrySummary, IPCPaneListResult(panes: [pane]),
-                .paneContextRead, .paneContext)
+                .paneContextRead, .paneContext, agentEligibility: entryEligibility)
         })
 
     static let paneCurrentEntry = IPCBuiltInMethodEntry<IPCEmptyParams, IPCPaneSnapshotResult>(
         name: "pane.current", summary: "Read the current pane and its workspace context.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let worktree = IPCWorkspaceWorktreeSummary(
                 id: examples.worktreeId,
@@ -210,14 +216,15 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             let paneResult = IPCPaneSnapshotResult(pane: pane, tab: tab, workspace: workspace)
             return try Self.query(
                 entryName, entrySummary, paneResult,
-                .paneContextRead, .paneContext)
+                .paneContextRead, .paneContext, agentEligibility: entryEligibility)
         })
 
     static let paneSnapshotEntry = IPCBuiltInMethodEntry<IPCPaneSelectorParams, IPCPaneSnapshotResult>(
         name: "pane.snapshot", summary: "Read one explicit pane and its workspace context.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .ownPane,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let worktree = IPCWorkspaceWorktreeSummary(
                 id: examples.worktreeId,
@@ -271,7 +278,7 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
                 targetKinds: [.pane],
                 exposure: .allChannels,
                 errors: [IPCBuiltInDescriptorSupport.invalidParams, IPCBuiltInDescriptorSupport.targetNotFound],
-                agentEligibility: .ownPane
+                agentEligibility: entryEligibility
             )
         })
 
@@ -280,7 +287,8 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
         _ description: String,
         _ result: Result,
         _ privilege: IPCPrivilegeClass,
-        _ dataScope: IPCDataScope
+        _ dataScope: IPCDataScope,
+        agentEligibility: IPCAgentEligibility?
     ) throws -> IPCMethodDescriptor<IPCEmptyParams, Result> {
         try IPCBuiltInDescriptorSupport.read(
             name: name,
@@ -291,7 +299,7 @@ package struct IPCWorkspaceQueryMethodDescriptors: Sendable {
             dataScope: dataScope,
             exposure: .allChannels,
             errors: [IPCBuiltInDescriptorSupport.unavailable],
-            agentEligibility: .anyTarget
+            agentEligibility: agentEligibility
         )
     }
 

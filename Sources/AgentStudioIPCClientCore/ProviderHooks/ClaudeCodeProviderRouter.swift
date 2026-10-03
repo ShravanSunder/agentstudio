@@ -14,7 +14,7 @@ package enum ClaudeCodeProviderRouter {
         standardInput: @escaping () throws -> Data,
         identifierGenerator: @escaping () -> UUID,
         noticeSink: @escaping (String) -> Void = { print($0) },
-        diagnosticSink: @escaping (String) -> Void = { fputs("\($0)\n", stderr) }
+        diagnosticSink: @escaping (String) -> Void = { CLIDiagnostics.record($0) }
     ) -> Int32? {
         if let code = ClaudeCodeHookInvocation.handle(
             ClaudeCodeHookInvocationInputs(

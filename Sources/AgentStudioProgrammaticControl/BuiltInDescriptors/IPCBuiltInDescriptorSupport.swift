@@ -96,7 +96,7 @@ enum IPCBuiltInDescriptorSupport {
         let semantics: IPCResultSemantics
         let errors: [IPCMethodErrorCase]
         let exposure: IPCMethodExposure
-        let agentEligibility: IPCAgentEligibility
+        let agentEligibility: IPCAgentEligibility?
 
         init(
             privilege: IPCPrivilegeClass,
@@ -110,7 +110,7 @@ enum IPCBuiltInDescriptorSupport {
                 IPCBuiltInDescriptorSupport.targetNotFound,
             ],
             exposure: IPCMethodExposure = .debugTesting,
-            agentEligibility: IPCAgentEligibility
+            agentEligibility: IPCAgentEligibility?
         ) {
             self.privilege = privilege
             self.dataScope = dataScope

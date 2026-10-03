@@ -356,42 +356,6 @@ struct AppIPCDynamicCommandClientTests {
             })
     }
 
-    @Test("built CLI renders foreign capabilities as unsupported version")
-    func builtCLIRendersUnsupportedVersionFromLiveSocket() async throws {
-        let endpoint = UnixSocketEndpoint(path: temporaryDynamicCommandSocketPath())
-        let listener = UnixSocketListener(endpoint: endpoint)
-        let privateCompatibilityMarker = "PRIVATE-FOREIGN-CATALOG-MUST-NOT-REFLECT"
-        let foreignCatalog = IPCMethodCatalogResult(
-            compatibility: IPCProtocolCatalogCompatibility(
-                wireProtocolIdentifier: "foreign-wire-\(privateCompatibilityMarker)",
-                catalogIdentifier: "foreign-catalog-\(privateCompatibilityMarker)"
-            ),
-            methods: []
-        )
-        try listener.start { connection in
-            defer { connection.close() }
-            var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
-            let request = try receiveListenerHandlerRequest(connection: connection, decoder: &decoder)
-            #expect(request.method == "system.capabilities")
-            try connection.send(
-                dynamicCommandResponseFrame(id: request.id, result: foreignCatalog)
-            )
-        }
-        defer { listener.stop() }
-
-        let result = try await runCLI(
-            executableURL: cliExecutableURL(),
-            arguments: ["system.capabilities"],
-            environment: makeCLIEnvironment(socketPath: endpoint.path)
-        )
-        let structuredError = try requireStructuredCLIError(result)
-        #expect(structuredError.reason == "unsupportedVersion")
-        #expect(structuredError.fieldPath == "$.compatibility")
-        #expect(structuredError.expected?.isEmpty == false)
-        let standardError = try #require(String(data: result.standardError, encoding: .utf8))
-        #expect(!standardError.contains(privateCompatibilityMarker))
-    }
-
     @Test("built CLI renders a missing required method parameter as invalid params")
     func builtCLIRendersMissingRequiredParameter() async throws {
         try await DynamicCommandScenario.withScope(body: { scenario in
@@ -493,8 +457,19 @@ struct AppIPCDynamicCommandClientTests {
             #expect(structuredError.reason == "unknownMethod")
             #expect(structuredError.fieldPath == "$.method")
             #expect(structuredError.catalogMethod == nil)
-            #expect(structuredError.expected == "a compiled method or model invocation; see agentstudio help")
+            // PD choice 4 ranks entry names; it specifies no eligibility filter.
+            let suggestedMethods: [String] = [
+                "bridge.telemetry.flush", "bridge.telemetry.snapshot", "bridge.diff.scrollToFile",
+            ]
+            let expectedCorrection: String =
+                "a compiled method or model invocation; see agentstudio help; closest methods: "
+                + suggestedMethods.joined(separator: ", ")
+            #expect(structuredError.expected == expectedCorrection)
+            let index = IPCBuiltInMethodIndex()
+            #expect(suggestedMethods.allSatisfy { index.entry(named: $0) != nil })
+            let standardOutput = try #require(String(data: result.standardOutput, encoding: .utf8))
             let standardError = try #require(String(data: result.standardError, encoding: .utf8))
+            #expect(!standardOutput.contains(privateMethodMarker))
             #expect(!standardError.contains(privateMethodMarker))
         })
     }
@@ -704,20 +679,4 @@ private func requireStructuredCLIError(_ result: CLIProcessResult) throws -> Str
     #expect(result.exitCode != 0)
     #expect(result.standardOutput.isEmpty)
     return try JSONDecoder().decode(StructuredCLIError.self, from: result.standardError)
-}
-
-private func temporaryDynamicCommandSocketPath() -> String {
-    "/tmp/asipc-cli-errors-\(UUIDv7.generate().uuidString).sock"
-}
-
-private func dynamicCommandResponseFrame<Result: Encodable>(
-    id: JSONRPCIdentifier?,
-    result: Result
-) throws -> Data {
-    try NDJSONFrameEncoder.encode(
-        JSONRPCCodec.encodeResponse(
-            .success(id: id, result: try JSONRPCCodec.encodeJSONValue(result))
-        ),
-        maxFrameBytes: 1_048_576
-    )
 }

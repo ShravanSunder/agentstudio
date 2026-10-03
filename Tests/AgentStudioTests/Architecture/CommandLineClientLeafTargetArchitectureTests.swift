@@ -24,6 +24,8 @@ struct CommandLineClientLeafTargetArchitectureTests {
         "Security",
         "System",
         "Darwin",
+        // Provider-silent CLI diagnostics go to the unified log.
+        "os",
         "AgentStudioIPCClientCore",
         "AgentStudioCLIStore",
         "AgentStudioIPCTransport",

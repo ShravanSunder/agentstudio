@@ -20,11 +20,13 @@ package struct IPCEventMethodDescriptors: Sendable {
         name: "events.subscribe", summary: "Subscribe this connection to a non-empty set of event names.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try Self.eventMutation(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCEventsSubscribeParams(
                     eventNames: [.terminalCommandFinished],
                     correlationId: examples.correlationId
@@ -42,28 +44,30 @@ package struct IPCEventMethodDescriptors: Sendable {
         name: "events.unsubscribe", summary: "Remove one event subscription owned by this connection.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try Self.eventMutation(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCEventsUnsubscribeParams(
                     subscriptionId: examples.subscriptionId,
                     correlationId: examples.correlationId
                 ),
                 result: IPCEventsUnsubscribeResult(subscriptionId: examples.subscriptionId),
-                semantics: .applied,
-                responseDelivery: .single
+                semantics: .applied
             )
         })
 
     private static func eventMutation<Parameters, Result>(
         name: String,
         description: String,
+        agentEligibility: IPCAgentEligibility?,
         parameters: Parameters,
         result: Result,
         semantics: IPCResultSemantics,
-        responseDelivery: IPCMethodResponseDelivery
+        responseDelivery: IPCMethodResponseDelivery = .single
     ) throws -> IPCMethodDescriptor<Parameters, Result>
     where Parameters: IPCSchemaProviding, Result: IPCSchemaProviding {
         try IPCMethodDescriptor(
@@ -87,7 +91,8 @@ package struct IPCEventMethodDescriptors: Sendable {
             ],
             isMutating: true,
             correlationPolicy: .required,
-            responseDelivery: responseDelivery
+            responseDelivery: responseDelivery,
+            agentEligibility: agentEligibility
         )
     }
 

@@ -1,10 +1,11 @@
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
 /// Delivers one projected provider event to the running app.
 ///
 /// The live value is the ordinary authenticated client path: discover the
-/// method catalog, then call `session.event` with the pane credential the pane
+/// selected compiled contract, then call `session.event` with the pane credential the pane
 /// environment already carries. It is a value rather than a direct call so the
 /// hook runner can be proven without a socket.
 package struct ProviderHookDelivery: Sendable {
@@ -23,6 +24,7 @@ package struct ProviderHookDelivery: Sendable {
         environment: [String: String]
     ) -> Self {
         Self { params, configuration in
+            let deadline = CallDeadline(limit: CLIPolicy.hookCallLimit)
             let examples = IPCBuiltInMethodExampleContext(
                 illustrativeIdentifier: exampleIdentifierProvider()
             )
@@ -40,7 +42,7 @@ package struct ProviderHookDelivery: Sendable {
             )
             let cleanup = CLIStoreCleanupHandler(environment: environment)
             let client = AgentStudioIPCClient(
-                configuration: configuration, descriptors: descriptors,
+                configuration: configuration, descriptors: descriptors, deadline: deadline,
                 onCallCompletion: { cleanup.handle(readThrough: $0) })
             switch try client.call(invocation) {
             case .success:
@@ -67,8 +69,7 @@ package enum ProviderHookFailure: Error, Equatable, Sendable {
 /// Runs one provider hook end to end: guard, read, project, deliver.
 ///
 /// Every path returns `0`. A hook that fails must never block the provider, so
-/// a failure is one line on standard error naming the stage and the reason —
-/// never the payload, which carries the user's prompts and tool arguments.
+/// diagnostics go only to the CLI's private log, never the provider's streams.
 package enum ProviderHookInvocation {
     package static let paneTokenVariable = "AGENTSTUDIO_PANE_TOKEN"
     package static let socketVariable = "AGENTSTUDIO_IPC_SOCKET"

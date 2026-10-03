@@ -22,7 +22,8 @@ package struct IPCBridgeTelemetryMethodDescriptors: Sendable {
         name: "bridge.telemetry.snapshot", summary: "Read the current telemetry report or its unavailable reason.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
@@ -39,7 +40,7 @@ package struct IPCBridgeTelemetryMethodDescriptors: Sendable {
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
                 errors: Self.telemetryErrors,
-                agentEligibility: .notYetAllowed
+                agentEligibility: entryEligibility
             )
         })
 
@@ -49,7 +50,8 @@ package struct IPCBridgeTelemetryMethodDescriptors: Sendable {
         name: "bridge.telemetry.flush", summary: "Flush buffered Bridge telemetry and return its settled report.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -71,7 +73,7 @@ package struct IPCBridgeTelemetryMethodDescriptors: Sendable {
                     targetKinds: [.pane],
                     owner: .bridgeCapability,
                     errors: Self.telemetryErrors,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 

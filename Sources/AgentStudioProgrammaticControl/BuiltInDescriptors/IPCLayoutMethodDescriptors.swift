@@ -27,7 +27,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
         name: "pane.focus", summary: "Focus one explicit pane in an explicit workspace window context.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             let relationship = inputs.relationships
             return try IPCBuiltInDescriptorSupport.mutation(
@@ -41,7 +42,7 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                     targetKinds: [.pane],
                     relationship: relationship.paneFocus,
                     owner: .workspaceAction,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -49,7 +50,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
         name: "pane.split", summary: "Split one explicit pane in the requested direction.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -69,7 +71,7 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                     dataScope: .paneContext,
                     targetKinds: [.pane],
                     owner: .workspaceAction,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -77,7 +79,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
         name: "pane.close", summary: "Close one explicit pane.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .ownPane,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             let relationship = inputs.relationships
             return try IPCBuiltInDescriptorSupport.mutation(
@@ -92,7 +95,7 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                     relationship: relationship.paneClose,
                     owner: .workspaceAction,
                     exposure: .allChannels,
-                    agentEligibility: .ownPane)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -100,7 +103,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
         name: "drawer.toggle", summary: "Toggle the drawer belonging to one explicit parent pane.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             let relationship = inputs.relationships
             return try IPCBuiltInDescriptorSupport.mutation(
@@ -120,7 +124,7 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                     targetKinds: [.pane],
                     relationship: relationship.drawerToggle,
                     owner: .workspaceAction,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -129,7 +133,8 @@ package struct IPCLayoutMethodDescriptors: Sendable {
         summary: "Add a terminal or browser to one explicit parent pane's drawer without expanding it or moving focus.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .ownPane,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             let relationship = inputs.relationships
             return try IPCBuiltInDescriptorSupport.mutation(
@@ -153,7 +158,7 @@ package struct IPCLayoutMethodDescriptors: Sendable {
                     relationship: relationship.drawerAddPane,
                     owner: .workspaceAction,
                     exposure: .allChannels,
-                    agentEligibility: .ownPane)
+                    agentEligibility: entryEligibility)
             )
         })
 

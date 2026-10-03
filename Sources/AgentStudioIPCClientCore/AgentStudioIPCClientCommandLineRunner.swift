@@ -120,7 +120,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         let discoveryClient = makeClient(configuration: global.configuration, descriptors: authentication)
         if global.methodArguments.first == "system.capabilities" {
             try validateCapabilitiesParameters(global: global, readInput: readInput)
-            try write(JSONEncoder().encode(discoveryClient.discoverCatalog()))
+            try write(discoveryClient.discoverCatalogBytes())
         } else if global.methodArguments == ["help", "--live"] {
             try writeLiveHelp(global: global, authentication: authentication, discoveryClient: discoveryClient)
         } else {
@@ -268,11 +268,18 @@ package struct AgentStudioIPCClientCommandLineRunner {
     /// - Returns: the process exit code when the arguments address a provider
     ///   command, and `nil` when they belong to the descriptor CLI.
     private func providerCommandExit(readInput: @escaping @Sendable () -> Data) -> Int32? {
+        let isHook: Bool = props.arguments.first == "hook"
+        let providerDiagnostics: @Sendable (String) -> Void
+        if isHook {
+            providerDiagnostics = { (message: String) in CLIDiagnostics.record(message) }
+        } else {
+            providerDiagnostics = props.standardErrorSink
+        }
         if let code = ClaudeCodeProviderRouter.exitCode(
             arguments: props.arguments, environment: props.environment,
             executablePath: props.executablePath, standardInput: readInput,
             identifierGenerator: props.identifierGenerator,
-            noticeSink: props.standardOutputSink, diagnosticSink: props.standardErrorSink
+            noticeSink: props.standardOutputSink, diagnosticSink: providerDiagnostics
         ) {
             return code
         }
@@ -280,7 +287,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             arguments: props.arguments, environment: props.environment,
             executablePath: props.executablePath, standardInput: readInput,
             identifierGenerator: props.identifierGenerator,
-            noticeSink: props.standardOutputSink, diagnosticSink: props.standardErrorSink
+            noticeSink: props.standardOutputSink, diagnosticSink: providerDiagnostics
         ) {
             return code
         }
@@ -291,15 +298,24 @@ package struct AgentStudioIPCClientCommandLineRunner {
     private func agentPackageProps(
         readInput: @escaping @Sendable () -> Data
     ) -> AgentPackageCommandRunner.Props {
-        AgentPackageCommandRunner.Props(
+        let isHook: Bool = props.arguments.first == "hook"
+        let packageDiagnostics: @Sendable (String) -> Void
+        if isHook {
+            packageDiagnostics = { (message: String) in CLIDiagnostics.record(message) }
+        } else {
+            packageDiagnostics = props.standardErrorSink
+        }
+        let packageInput: @Sendable () throws -> Data = { readInput() }
+        let packageProps = AgentPackageCommandRunner.Props(
             environment: props.environment,
             executableURL: props.bundleExecutableURL,
-            standardInput: readInput,
+            standardInput: packageInput,
             correlationIdProvider: props.identifierGenerator,
             exampleIdentifierProvider: props.identifierGenerator,
             standardOutputSink: props.standardOutputSink,
-            standardErrorSink: props.standardErrorSink
+            standardErrorSink: packageDiagnostics
         )
+        return packageProps
     }
 
     private func exitCode(forFailure error: Error, endpointCameFromDebugEscrow: Bool) -> Int32 {
@@ -463,7 +479,7 @@ private struct CLIErrorPresentation: Codable {
         if invocationFailure.reason == .unknownMethod {
             reason = "unknownMethod"
             fieldPath = "$.method"
-            expected = "a compiled method or model invocation; see agentstudio help"
+            expected = invocationFailure.expected
             catalogMethod = nil
         } else {
             reason = "invalidParams"

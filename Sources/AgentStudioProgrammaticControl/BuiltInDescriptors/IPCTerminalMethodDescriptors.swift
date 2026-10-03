@@ -24,7 +24,8 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         name: "terminal.status", summary: "Read lifecycle and capability status for one terminal pane.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .ownPane,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
@@ -43,7 +44,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
                 exposure: .allChannels,
                 owner: .runtimeCommand,
                 errors: Self.terminalErrors,
-                agentEligibility: .ownPane
+                agentEligibility: entryEligibility
             )
         })
 
@@ -51,7 +52,8 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         name: "terminal.send", summary: "Send exact input to one terminal pane.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .ownPane,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -76,7 +78,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
                     semantics: .accepted,
                     errors: Self.terminalErrors,
                     exposure: .allChannels,
-                    agentEligibility: .ownPane)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -84,7 +86,8 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         name: "terminal.snapshot", summary: "Read one terminal runtime snapshot without terminal output.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .ownPane,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let example = inputs.examples
             return try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
@@ -107,7 +110,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
                 exposure: .allChannels,
                 owner: .runtimeCommand,
                 errors: Self.terminalErrors,
-                agentEligibility: .ownPane
+                agentEligibility: entryEligibility
             )
         })
 
@@ -115,8 +118,9 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         name: "terminal.wait", summary: "Wait for one bounded terminal condition.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
+        agentEligibility: .ownPane,
         parameterSchema: { try Self.waitParameterSchema() },
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let waitParameters = IPCTerminalWaitParams(
                 handle: "self",
                 condition: .titleChanged,
@@ -154,10 +158,10 @@ package struct IPCTerminalMethodDescriptors: Sendable {
                 principalAvailability: .authenticated,
                 resultSemantics: .accepted,
                 documentedErrors: IPCBuiltInDescriptorSupport.documentedErrors(
-                    Self.terminalWaitErrors, agentEligibility: .ownPane),
+                    Self.terminalWaitErrors, agentEligibility: entryEligibility),
                 isMutating: false,
                 correlationPolicy: .notAccepted,
-                agentEligibility: .ownPane
+                agentEligibility: entryEligibility
             )
         })
 

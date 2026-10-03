@@ -29,7 +29,8 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
         name: "system.ping", summary: "Confirm that the selected Agent Studio runtime is reachable.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
@@ -40,7 +41,7 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
                 dataScope: .unspecified,
                 exposure: .allChannels,
                 availability: .preAuthentication,
-                agentEligibility: .anyTarget
+                agentEligibility: entryEligibility
             )
         })
 
@@ -48,7 +49,8 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
         name: "system.identify", summary: "Identify the selected runtime, access mode, and application version.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
@@ -62,7 +64,7 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
                 privilege: .systemRead,
                 dataScope: .unspecified,
                 exposure: .allChannels,
-                agentEligibility: .anyTarget
+                agentEligibility: entryEligibility
             )
         })
 
@@ -70,7 +72,8 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
         name: "system.version", summary: "Read the Agent Studio application version.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, _ in
+        agentEligibility: .anyTarget,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, _ in
             try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
                 description: entrySummary,
@@ -79,7 +82,7 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
                 privilege: .systemRead,
                 dataScope: .unspecified,
                 exposure: .allChannels,
-                agentEligibility: .anyTarget
+                agentEligibility: entryEligibility
             )
         })
 
@@ -87,7 +90,8 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
         name: "auth.login", summary: "Authenticate this connection with the owning runtime credential.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCMethodDescriptor(
                 name: entryName,
@@ -118,7 +122,8 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
                     ),
                 ],
                 isMutating: false,
-                correlationPolicy: .notAccepted
+                correlationPolicy: .notAccepted,
+                agentEligibility: entryEligibility
             )
         })
 
@@ -126,7 +131,8 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
         name: "auth.status", summary: "Read whether this connection has an authenticated principal.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, _ in
+        agentEligibility: nil,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, _ in
             try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
                 description: entrySummary,
@@ -136,7 +142,7 @@ package struct IPCSystemAndAuthMethodDescriptors: Sendable {
                 dataScope: .unspecified,
                 exposure: .allChannels,
                 availability: .preAuthentication,
-                agentEligibility: nil
+                agentEligibility: entryEligibility
             )
         })
 

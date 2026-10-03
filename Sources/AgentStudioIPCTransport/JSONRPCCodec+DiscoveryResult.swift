@@ -75,9 +75,12 @@ private struct JSONRPCResultByteSlice {
             let key = try JSONDecoder().decode(String.self, from: Data(bytes[keyStart..<keyEnd]))
             position = skippingWhitespace(from: keyEnd)
             guard position < bytes.count, bytes[position] == 0x3a else { throw invalidSpan() }
-            let start = skippingWhitespace(from: position + 1)
+            let resultStart = position + 1
+            let start = skippingWhitespace(from: resultStart)
             let end = try valueEnd(from: start)
-            if key == "result" { return Data(bytes[start..<end]) }
+            if key == "result" {
+                return Data(bytes[resultStart..<skippingWhitespace(from: end)])
+            }
             position = skippingWhitespace(from: end)
             guard position < bytes.count, bytes[position] == 0x2c else { throw invalidSpan() }
             position += 1

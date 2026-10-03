@@ -50,12 +50,14 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.diff.scrollToFile", summary: "Scroll one Bridge review item into view.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let itemId = "Sources/App.swift"
             return try Self.pageControl(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCBridgeDiffScrollToFileParams(
                     handle: "self", itemId: itemId, correlationId: examples.correlationId),
                 example: examples,
@@ -69,12 +71,14 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.diff.expandFile", summary: "Expand one Bridge review item.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let itemId = "Sources/App.swift"
             return try Self.pageControl(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCBridgeDiffExpandFileParams(
                     handle: "self", itemId: itemId, correlationId: examples.correlationId),
                 example: examples,
@@ -88,12 +92,14 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.diff.collapseFile", summary: "Collapse one Bridge review item.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let itemId = "Sources/App.swift"
             return try Self.pageControl(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCBridgeDiffCollapseFileParams(
                     handle: "self", itemId: itemId, correlationId: examples.correlationId),
                 example: examples,
@@ -107,11 +113,13 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.fileTree.search", summary: "Set exact text or regular-expression search on one Bridge file tree.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try Self.pageControl(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCBridgeFileTreeSearchParams(
                     handle: "self",
                     searchText: "App",
@@ -127,11 +135,13 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.fileTree.setFilter", summary: "Replace the complete filter for one Bridge file-tree surface.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try Self.pageControl(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCBridgeFileTreeSetFilterParams(
                     handle: "self",
                     candidate: .review(
@@ -152,11 +162,13 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.fileTree.revealPath", summary: "Reveal one explicit path in a Bridge file tree.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try Self.pageControl(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCBridgeFileTreeRevealPathParams(
                     handle: "self",
                     path: "Sources/App.swift",
@@ -173,7 +185,8 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.fileView.getContent", summary: "Read content metadata for a handle in one Bridge pane.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let itemId = "Sources/App.swift"
             let contentHandle = IPCBridgeContentHandleSummary(
@@ -207,7 +220,7 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
                 targetKinds: [.pane],
                 owner: .bridgeCapability,
                 errors: Self.bridgeErrors,
-                agentEligibility: .notYetAllowed
+                agentEligibility: entryEligibility
             )
         })
 
@@ -217,12 +230,14 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
         name: "bridge.fileView.showMarkdownPreview", summary: "Show Markdown preview for an explicit or selected item.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             let itemId = "Sources/App.swift"
             return try Self.pageControl(
                 name: entryName,
                 description: entrySummary,
+                agentEligibility: entryEligibility,
                 parameters: IPCBridgeFileViewShowMarkdownPreviewParams(
                     handle: "self",
                     itemId: itemId,
@@ -244,6 +259,7 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
     private static func pageControl<Parameters: IPCSchemaProviding>(
         name: String,
         description: String,
+        agentEligibility: IPCAgentEligibility?,
         parameters: Parameters,
         example: IPCBuiltInMethodExampleContext,
         itemId: String? = nil,
@@ -279,7 +295,7 @@ package struct IPCBridgeControlMethodDescriptors: Sendable {
                 owner: .bridgeCapability,
                 semantics: .accepted,
                 errors: Self.bridgeErrors,
-                agentEligibility: .notYetAllowed)
+                agentEligibility: agentEligibility)
         )
     }
 

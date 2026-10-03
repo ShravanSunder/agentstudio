@@ -11,9 +11,7 @@ package struct CLIStoreCleanupHandler: Sendable {
     package init(
         environment: [String: String],
         now: @escaping @Sendable () -> Date = { Date() },
-        diagnosticSink: @escaping @Sendable (String) -> Void = { message in
-            try? FileHandle.standardError.write(contentsOf: Data((message + "\n").utf8))
-        }
+        diagnosticSink: @escaping @Sendable (String) -> Void = { CLIDiagnostics.record($0) }
     ) {
         location = CleanupStoreLocation(environment: environment)
         self.now = now

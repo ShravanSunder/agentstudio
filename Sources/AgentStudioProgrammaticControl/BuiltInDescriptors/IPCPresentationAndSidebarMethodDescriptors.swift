@@ -28,7 +28,8 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
         name: "ui.commandBar.open", summary: "Present one command-bar scope in an explicit workspace window.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -50,7 +51,7 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
                     owner: .uiPresentation,
                     semantics: .presented,
                     errors: Self.presentationErrors,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -59,7 +60,8 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
         summary: "Present arrangements in an explicit workspace window and optional pane context.",
         modelCalls: [],
         correlationPolicy: .required,
-        makeDescriptor: { entryName, entrySummary, _, inputs in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, inputs in
             let examples = inputs.examples
             return try IPCBuiltInDescriptorSupport.mutation(
                 name: entryName,
@@ -82,7 +84,7 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
                     owner: .uiPresentation,
                     semantics: .presented,
                     errors: Self.presentationErrors,
-                    agentEligibility: .notYetAllowed)
+                    agentEligibility: entryEligibility)
             )
         })
 
@@ -90,7 +92,8 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
         name: "sidebar.grouping.get", summary: "Read the grouping mode for one sidebar surface.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, _ in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, _ in
             try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
                 description: entrySummary,
@@ -99,7 +102,7 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
                 privilege: .workspaceRead,
                 dataScope: .unspecified,
                 errors: [IPCBuiltInDescriptorSupport.unavailable],
-                agentEligibility: .notYetAllowed
+                agentEligibility: entryEligibility
             )
         })
 
@@ -107,7 +110,8 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
         name: "sidebar.surface.get", summary: "Read the visible sidebar surface.",
         modelCalls: [],
         correlationPolicy: .notAccepted,
-        makeDescriptor: { entryName, entrySummary, _, _ in
+        agentEligibility: .notYetAllowed,
+        makeDescriptor: { entryName, entrySummary, _, entryEligibility, _ in
             try IPCBuiltInDescriptorSupport.read(
                 name: entryName,
                 description: entrySummary,
@@ -116,7 +120,7 @@ package struct IPCPresentationAndSidebarMethodDescriptors: Sendable {
                 privilege: .workspaceRead,
                 dataScope: .unspecified,
                 errors: [IPCBuiltInDescriptorSupport.unavailable],
-                agentEligibility: .notYetAllowed
+                agentEligibility: entryEligibility
             )
         })
 
